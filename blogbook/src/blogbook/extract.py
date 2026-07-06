@@ -14,7 +14,11 @@ class ExtractionError(RuntimeError):
 
 def extract_article(html: str, source_url: str) -> Article:
     document = Document(html)
-    title = _clean_text(document.short_title()) or _find_title(html)
+    title = (
+        _find_article_header_title(html)
+        or _clean_text(document.short_title())
+        or _find_title(html)
+    )
     article_html = document.summary(html_partial=True)
 
     soup = BeautifulSoup(article_html, "html.parser")
@@ -94,6 +98,17 @@ def _find_title(html: str) -> str:
         return _clean_text(soup.title.string)
     heading = soup.find("h1")
     return _clean_text(heading.get_text(" ")) if heading else ""
+
+
+def _find_article_header_title(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for selector in ["article h1", "main h1", "header h1", "h1"]:
+        heading = soup.select_one(selector)
+        if heading:
+            title = _clean_text(heading.get_text(" "))
+            if title:
+                return title
+    return ""
 
 
 def _find_author(soup: BeautifulSoup) -> Optional[str]:

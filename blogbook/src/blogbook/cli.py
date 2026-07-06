@@ -5,7 +5,7 @@ from typing import Optional
 
 import typer
 
-from blogbook.pipeline import create_book_from_url
+from blogbook.pipeline import create_book_from_file
 from blogbook.translate import NoopTranslator, OpenAITranslator
 
 app = typer.Typer(
@@ -16,26 +16,22 @@ app = typer.Typer(
 
 @app.command()
 def create(
-    url: str = typer.Argument(..., help="Blog post URL."),
+    urls_file: Path = typer.Argument(..., help="Text file with one blog post URL per line."),
     output: Path = typer.Option(Path("book.epub"), "--output", "-o", help="Output EPUB path."),
-    language: str = typer.Option("cs", "--language", "-l", help="Target language code."),
     title: Optional[str] = typer.Option(None, "--title", help="Override book title."),
-    author: Optional[str] = typer.Option(None, "--author", help="Override book author."),
     translate: bool = typer.Option(
         True,
         "--translate/--no-translate",
-        help="Translate article text.",
+        help="Translate article text into Czech.",
     ),
     model: str = typer.Option("gpt-4.1-mini", "--model", help="OpenAI model for translation."),
 ) -> None:
     translator = OpenAITranslator(model=model) if translate else NoopTranslator()
-    result = create_book_from_url(
-        url=url,
+    result = create_book_from_file(
+        urls_file=urls_file,
         output_path=output,
         translator=translator,
-        target_language=language,
         title=title,
-        author=author,
     )
     typer.echo(f"Created EPUB: {result}")
 

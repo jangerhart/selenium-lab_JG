@@ -20,6 +20,15 @@ class BookMetadata(BaseModel):
     """Metadata used when writing the EPUB."""
 
     title: str = Field(min_length=1)
-    author: str = "Unknown author"
+    author: Optional[str] = None
     language: str = "cs"
     source_url: Optional[HttpUrl] = None
+
+
+class BookChapter(BaseModel):
+    """One EPUB chapter derived from one source blog post."""
+
+    title: str = Field(min_length=1)
+    html: str = Field(min_length=1)
+    source_url: HttpUrl
+    author: Optional[str] = None

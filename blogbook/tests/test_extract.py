@@ -30,3 +30,20 @@ def test_extract_article_removes_page_noise() -> None:
     assert "Related posts" not in article.text
     assert "script" not in article.html
 
+
+def test_extract_article_prefers_article_header_title() -> None:
+    html = """
+    <html>
+      <head><title>SEO Title With Site Name</title></head>
+      <body>
+        <article>
+          <h1>Real Article Header</h1>
+          <p>This is the useful article text.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    article = extract_article(html, "https://example.com/post")
+
+    assert article.title == "Real Article Header"

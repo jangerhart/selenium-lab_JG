@@ -6,33 +6,45 @@ from uuid import uuid4
 
 from ebooklib import epub
 
-from blogbook.models import BookMetadata
+from blogbook.models import BookChapter, BookMetadata
 
 
-def write_epub(html: str, metadata: BookMetadata, output_path: Path) -> Path:
+def write_epub(chapters: list[BookChapter], metadata: BookMetadata, output_path: Path) -> Path:
+    if not chapters:
+        raise ValueError("Cannot write an EPUB without chapters.")
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     book = epub.EpubBook()
     book.set_identifier(str(uuid4()))
     book.set_title(metadata.title)
     book.set_language(metadata.language)
-    book.add_author(metadata.author)
+    if metadata.author:
+        book.add_author(metadata.author)
 
-    chapter = epub.EpubHtml(
-        title=metadata.title,
-        file_name="chapter-1.xhtml",
-        lang=metadata.language,
-    )
-    source_link = (
-        f"<p><small>Source: <a href=\"{metadata.source_url}\">{metadata.source_url}</a></small></p>"
-        if metadata.source_url
-        else ""
-    )
-    chapter.content = f"<h1>{escape(metadata.title)}</h1>{source_link}{html}"
+    epub_chapters = []
+    toc_links = []
+    for index, source_chapter in enumerate(chapters, start=1):
+        file_name = f"chapter-{index}.xhtml"
+        chapter = epub.EpubHtml(
+            title=source_chapter.title,
+            file_name=file_name,
+            lang=metadata.language,
+        )
+        source_link = (
+            f"<p><small>Source: "
+            f"<a href=\"{source_chapter.source_url}\">{source_chapter.source_url}</a>"
+            f"</small></p>"
+        )
+        chapter.content = (
+            f"<h1>{escape(source_chapter.title)}</h1>{source_link}{source_chapter.html}"
+        )
+        book.add_item(chapter)
+        epub_chapters.append(chapter)
+        toc_links.append(epub.Link(file_name, source_chapter.title, f"chapter-{index}"))
 
-    book.add_item(chapter)
-    book.toc = (epub.Link("chapter-1.xhtml", metadata.title, "chapter-1"),)
-    book.spine = ["nav", chapter]
+    book.toc = tuple(toc_links)
+    book.spine = ["nav"] + epub_chapters
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
 

@@ -1,7 +1,8 @@
 # Blogbook
 
-Blogbook creates small EPUB e-books from web blog posts. The pipeline downloads a page,
-extracts the main article, optionally translates it, and writes a clean EPUB file.
+Blogbook creates small Czech EPUB e-books from web blog posts. The pipeline reads URLs
+from a text file, downloads each page, extracts the main article, optionally translates it
+into Czech, and writes a clean EPUB file.
 
 ## Status
 
@@ -9,7 +10,7 @@ This is an MVP scaffold:
 
 - article extraction from HTML with `readability-lxml` and a BeautifulSoup fallback
 - translation provider abstraction with OpenAI implementation
-- EPUB generation with `ebooklib`
+- EPUB generation with `ebooklib`, including one chapter per input URL
 - CLI entrypoint
 - unit tests for the core pipeline
 
@@ -25,20 +26,29 @@ python -m pip install -e ".[dev]"
 
 ## Usage
 
-Create an EPUB without translation:
+Create `urls.txt` with one blog post URL per line:
 
-```bash
-blogbook create "https://example.com/blog-post" --output output/book.epub --no-translate
+```text
+https://example.com/blog-post
+https://example.com/another-post
 ```
 
-Create a Czech translation with OpenAI:
+Create a Czech EPUB with OpenAI translation:
 
 ```bash
 export OPENAI_API_KEY="..."
-blogbook create "https://example.com/blog-post" --language cs --output output/book.epub
+blogbook create urls.txt --output output/book.epub
 ```
 
-Use `--title` and `--author` when the source page metadata is incomplete.
+Create an EPUB without translation, useful for local extraction checks:
+
+```bash
+blogbook create urls.txt --output output/book.epub --no-translate
+```
+
+Use `--title` when you want to override the generated book title. Chapter titles are derived
+from each article header. The author is inferred from page metadata when available; otherwise
+it is omitted from the EPUB metadata.
 
 ## Development
 

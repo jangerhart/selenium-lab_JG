@@ -5,11 +5,12 @@ rewriting the whole pipeline.
 
 ## Pipeline
 
-1. `fetch.fetch_html` downloads the source page.
-2. `extract.extract_article` removes page noise and returns clean article HTML and text.
-3. `translate.Translator` translates the article HTML. `NoopTranslator` is used for tests
+1. `pipeline.read_urls` loads one or more source URLs from a text file.
+2. `fetch.fetch_html` downloads each source page.
+3. `extract.extract_article` removes page noise and returns clean article HTML and text.
+4. `translate.Translator` translates the article HTML into Czech. `NoopTranslator` is used for tests
    and dry runs; `OpenAITranslator` is the first production provider.
-4. `epub.write_epub` writes the final EPUB.
+5. `epub.write_epub` writes the final EPUB with one chapter per URL.
 
 ## Design choices
 
@@ -24,4 +25,3 @@ rewriting the whole pipeline.
 - cache fetched and extracted articles for repeatable runs
 - add per-site extraction rules for sources where readability is not enough
 - optionally add a browser-based fetcher for JavaScript-heavy pages
-
