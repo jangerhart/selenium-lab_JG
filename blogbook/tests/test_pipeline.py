@@ -1,16 +1,61 @@
 from pathlib import Path
 
 import pytest
+from openai import OpenAIError
 
+import blogbook.translate as translate_module
 from blogbook.models import BookChapter
 from blogbook.pipeline import _build_metadata, _ensure_body_fragment, read_urls
-from blogbook.translate import NoopTranslator
+from blogbook.translate import NoopTranslator, OpenAITranslator
 
 
 def test_noop_translator_returns_html_unchanged() -> None:
     html = "<p>Hello</p>"
 
     assert NoopTranslator().translate_html(html, "cs") == html
+
+
+def test_openai_translator_uses_api_key_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        output_text = "<p>Přeloženo</p>"
+
+    class FakeOpenAI:
+        def __init__(self, api_key: object = None) -> None:
+            captured["api_key"] = api_key
+
+        @property
+        def responses(self) -> object:
+            return self
+
+        def create(self, **_: object) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setenv("API_KEY", "test-key")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(translate_module, "OpenAI", FakeOpenAI)
+
+    assert OpenAITranslator().translate_html("<p>Hello</p>", "cs") == "<p>Přeloženo</p>"
+    assert captured["api_key"] == "test-key"
+
+
+def test_openai_translator_surfaces_openai_error_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeOpenAI:
+        def __init__(self, api_key: object = None) -> None:
+            pass
+
+        @property
+        def responses(self) -> object:
+            return self
+
+        def create(self, **_: object) -> object:
+            raise OpenAIError("Error code: 429 - insufficient_quota")
+
+    monkeypatch.setattr(translate_module, "OpenAI", FakeOpenAI)
+
+    with pytest.raises(translate_module.TranslationError, match="insufficient_quota"):
+        OpenAITranslator().translate_html("<p>Hello</p>", "cs")
 
 
 def test_ensure_body_fragment_extracts_body_children() -> None:

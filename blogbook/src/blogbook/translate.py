@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -27,7 +28,8 @@ class OpenAITranslator:
 
     def translate_html(self, html: str, target_language: str) -> str:
         try:
-            client = OpenAI()
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+            client = OpenAI(api_key=api_key)
             response = client.responses.create(
                 model=self.model,
                 input=[
@@ -46,7 +48,11 @@ class OpenAITranslator:
                 ],
             )
         except OpenAIError as exc:
-            raise TranslationError(
-                "Translation failed. Set OPENAI_API_KEY or run with --no-translate."
-            ) from exc
+            detail = str(exc)
+            message = (
+                f"Translation failed: {detail}"
+                if detail
+                else "Translation failed. Set OPENAI_API_KEY or run with --no-translate."
+            )
+            raise TranslationError(message) from exc
         return response.output_text.strip()
