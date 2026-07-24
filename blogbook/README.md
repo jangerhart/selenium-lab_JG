@@ -40,6 +40,11 @@ export OPENAI_API_KEY="..."
 blogbook create urls.txt --output output/book.epub
 ```
 
+Before translation, Blogbook checks every URL, extracts its readable content, skips
+unreachable or non-article pages, and displays a summary with an approximate translation
+token count. Translation starts only after confirmation. During both checking and translation
+the CLI displays progress and an estimated remaining time. Use `--yes` for unattended runs.
+
 Create an EPUB without translation, useful for local extraction checks:
 
 ```bash

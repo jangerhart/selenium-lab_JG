@@ -32,3 +32,24 @@ class BookChapter(BaseModel):
     html: str = Field(min_length=1)
     source_url: HttpUrl
     author: Optional[str] = None
+
+
+class PreflightItem(BaseModel):
+    """Result of checking one URL before any translation is attempted."""
+
+    url: str
+    usable: bool
+    title: Optional[str] = None
+    characters: int = 0
+    estimated_tokens: int = 0
+    reason: Optional[str] = None
+
+
+class PreflightSummary(BaseModel):
+    """Summary shown to the user before token-consuming work starts."""
+
+    total_urls: int
+    usable_urls: int
+    skipped_urls: int
+    estimated_tokens: int
+    items: list[PreflightItem]
