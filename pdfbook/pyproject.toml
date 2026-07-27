@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pdfbook"
+version = "0.1.0"
+description = "Translate text-based PDF books into clean Czech PDFs."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Jan Gerhart" }]
+dependencies = [
+  "openai>=1.40.0",
+  "pydantic>=2.8.0",
+  "pypdf>=5.0.0",
+  "reportlab>=4.2.0",
+  "typer>=0.12.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10.0",
+  "pytest>=8.2.0",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.5.0",
+]
+
+[project.scripts]
+pdfbook = "pdfbook.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdfbook"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = [
+  "B008",
+  "UP045",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q --cov=pdfbook --cov-report=term-missing"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_unused_configs = true
+packages = ["pdfbook"]
+
+[[tool.mypy.overrides]]
+module = ["pypdf", "pypdf.*", "reportlab", "reportlab.*"]
+ignore_missing_imports = true
