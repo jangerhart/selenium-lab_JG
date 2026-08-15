@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "epubbook"
+version = "0.1.0"
+description = "Translate EPUB books to Czech while preserving their reader-ready layout."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Jan Gerhart" }]
+dependencies = [
+  "lxml>=5.2.0",
+  "openai>=1.40.0",
+  "typer>=0.12.3",
+]
+
+[project.optional-dependencies]
+dev = ["mypy>=1.10.0", "pytest>=8.2.0", "ruff>=0.5.0"]
+
+[project.scripts]
+epubbook = "epubbook.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/epubbook"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008", "UP045"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+packages = ["epubbook"]
+
+[[tool.mypy.overrides]]
+module = ["lxml", "lxml.*"]
+ignore_missing_imports = true
