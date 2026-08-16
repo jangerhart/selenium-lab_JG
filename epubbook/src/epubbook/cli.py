@@ -13,6 +13,11 @@ from epubbook.translate import OpenAITranslator, TranslationError
 app = typer.Typer(no_args_is_help=True, help="Přeloží EPUB do češtiny bez změny sazby knihy.")
 
 
+@app.callback()
+def main() -> None:
+    """Přeloží EPUB do češtiny bez změny sazby knihy."""
+
+
 @app.command()
 def translate(
     input_epub: Path = typer.Argument(..., help="Zdrojová kniha EPUB."),
@@ -32,6 +37,9 @@ def translate(
         return yes or typer.confirm("Pokračovat v překladu?", default=False)
 
     def progress(current: int, total: int, detail: str) -> None:
+        if current == 0:
+            typer.echo(f"[Obnova překladu] {detail}")
+            return
         elapsed = time.monotonic() - started
         eta = (elapsed / current) * max(total - current, 0)
         typer.echo(f"[Překlad {current}/{total}] {detail} | odhad zbývá {_duration(eta)}")

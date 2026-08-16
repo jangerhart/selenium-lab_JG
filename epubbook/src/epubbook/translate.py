@@ -10,12 +10,17 @@ from openai import OpenAI, OpenAIError
 
 from epubbook.models import TextSegment
 
-MAX_CHUNK_CHARACTERS = 12_000
+MAX_CHUNK_CHARACTERS = 8_000
+SINGLE_SEGMENT_ATTEMPTS = 3
 ProgressCallback = Callable[[int, int, str], None]
 
 
 class TranslationError(RuntimeError):
     """Raised when translation cannot be completed without losing content."""
+
+
+class ResponseValidationError(TranslationError):
+    """Raised when a model response does not match the requested text segments."""
 
 
 @dataclass(frozen=True)
@@ -30,8 +35,36 @@ class OpenAITranslator:
         for index, chunk in enumerate(chunks, start=1):
             if progress:
                 progress(index, len(chunks), f"blok {index}")
-            result.update(self._translate_chunk(chunk))
+            result.update(self._translate_resilient(chunk, progress))
         return result
+
+    def _translate_resilient(
+        self,
+        segments: list[TextSegment],
+        progress: Optional[ProgressCallback] = None,
+    ) -> dict[int, str]:
+        attempts = SINGLE_SEGMENT_ATTEMPTS if len(segments) == 1 else 1
+        last_error: Optional[ResponseValidationError] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._translate_chunk(segments)
+            except ResponseValidationError as exc:
+                last_error = exc
+                if progress and attempts > 1 and attempt < attempts:
+                    progress(0, 0, f"opakování textové části {segments[0].identifier}")
+
+        if len(segments) > 1:
+            midpoint = len(segments) // 2
+            if progress:
+                progress(0, 0, f"dělení problematického bloku ({len(segments)} částí)")
+            left = self._translate_resilient(segments[:midpoint], progress)
+            right = self._translate_resilient(segments[midpoint:], progress)
+            return {**left, **right}
+
+        identifier = segments[0].identifier
+        raise TranslationError(
+            f"Model ani po {attempts} pokusech nepřeložil textovou část {identifier}."
+        ) from last_error
 
     def _translate_chunk(self, segments: list[TextSegment]) -> dict[int, str]:
         api_key = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
@@ -58,13 +91,13 @@ class OpenAITranslator:
         except OpenAIError as exc:
             raise TranslationError(f"Překlad selhal: {exc}") from exc
         try:
-            data = json.loads(response.output_text)
+            data = json.loads(_strip_json_fence(response.output_text))
             translated = {int(item["id"]): str(item["text"]) for item in data}
         except (ValueError, TypeError, KeyError) as exc:
-            raise TranslationError("Model nevrátil platný seznam překladů.") from exc
+            raise ResponseValidationError("Model nevrátil platný seznam překladů.") from exc
         expected = {item.identifier for item in segments}
         if set(translated) != expected or any(not value.strip() for value in translated.values()):
-            raise TranslationError("Model vynechal nebo přidal textovou část; EPUB nebyl vytvořen.")
+            raise ResponseValidationError("Model vynechal nebo přidal textovou část.")
         return translated
 
 
@@ -83,3 +116,12 @@ def make_chunks(segments: list[TextSegment]) -> list[list[TextSegment]]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def _strip_json_fence(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        lines = cleaned.splitlines()
+        if len(lines) >= 3:
+            return "\n".join(lines[1:-1]).strip()
+    return cleaned
