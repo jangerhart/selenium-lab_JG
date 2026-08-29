@@ -19,7 +19,7 @@ This document intentionally does **not** define the final analytical model used 
 
 The analytical database will be designed later, after multiple competitor price sources are available and the pricing-comparison requirements are sufficiently understood.
 
-Project-wide business and scraper principles live in `docs/PROJECT_CONTEXT.md`; this file focuses on database design, schema layout and migration.
+Project-wide business and scraper principles live in `PROJECT_CONTEXT.md`; this file focuses on database design, schema layout and migration.
 
 ---
 

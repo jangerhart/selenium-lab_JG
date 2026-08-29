@@ -14,16 +14,16 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - Profibagr PoC scraping works over HTTP without JavaScript.
 - Profibagr input filtering currently happens in the scraper query against `search_part_number_normalized`.
 - The scraper batch is capped at 100 part numbers.
-- `docs/DATABASE.md` now contains the target database design.
-- `docs/DATABASE.md` was trimmed to avoid duplicating project-wide principles from `docs/PROJECT_CONTEXT.md`.
-- `docs/DATABASE.md` was trimmed again to remove project-context-only sections.
+- `Sandix/docs/DATABASE.md` now contains the target database design.
+- `Sandix/docs/DATABASE.md` was trimmed to avoid duplicating project-wide principles from `Sandix/docs/PROJECT_CONTEXT.md`.
+- `Sandix/docs/DATABASE.md` was trimmed again to remove project-context-only sections.
 
 ## Files changed
 
 - `AGENTS.md`
-- `docs/HANDOFF.md`
-- `docs/PROJECT_CONTEXT.md`
-- `docs/DATABASE.md`
+- `Sandix/docs/HANDOFF.md`
+- `Sandix/docs/PROJECT_CONTEXT.md`
+- `Sandix/docs/DATABASE.md`
 
 ## Database objects inspected or changed
 
@@ -40,7 +40,7 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 ## Results
 
 - Batch run succeeded.
-- Last successful CSV: `data/raw/profibagr/profibagr_20260828_061800.csv`
+- Last successful CSV: `Sandix/profibagr-scraper/data/raw/profibagr/profibagr_20260828_061800.csv`
 - Latest batch size: 100 search P/N
 - Latest output: 140 CSV rows, 93 OK, 47 NOT_FOUND
 - Database design document populated from the provided project specification.
@@ -55,6 +55,6 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 ## Recommended next step
 
 - Keep Profibagr input filtering isolated from `skz_transformed_v` until downstream consumers are mapped.
-- Continue with any database-schema implementation work from `docs/DATABASE.md`.
-- Keep shared business principles in `docs/PROJECT_CONTEXT.md` and DB-specific decisions in `docs/DATABASE.md`.
-- Keep checking for overlap, but prefer moving general context out of `docs/DATABASE.md`.
+- Continue with any database-schema implementation work from `Sandix/docs/DATABASE.md`.
+- Keep shared business principles in `Sandix/docs/PROJECT_CONTEXT.md` and DB-specific decisions in `Sandix/docs/DATABASE.md`.
+- Keep checking for overlap, but prefer moving general context out of `Sandix/docs/DATABASE.md`.
