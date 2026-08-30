@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -21,16 +22,12 @@ from dotenv import load_dotenv
 
 BASE_URL = "https://www.profibagr.cz"
 SEARCH_PATH = "/search"
-SEARCH_SUGGEST_PATH = "/search/suggest"
 REQUEST_TIMEOUT_SECONDS = 15
 REQUEST_DELAY_SECONDS = 1
 DB_QUERY = """
-SELECT search_part_number
-FROM scraper.v_profibagr_search_queue
-WHERE btrim(search_part_number_normalized) ~ '^[A-Z0-9][A-Z0-9/.-]*[A-Z0-9]$'
-  AND btrim(search_part_number_normalized) ~ '[0-9]'
-  AND length(regexp_replace(search_part_number_normalized, '[^[:alnum:]]', '', 'g')) >= 5
-ORDER BY search_part_number
+SELECT search_identifier
+FROM scraper.v_search_queue
+ORDER BY search_identifier_normalized, search_identifier
 LIMIT 100;
 """
 
@@ -56,6 +53,7 @@ CSV_HEADERS = [
 @dataclass
 class FetchResult:
     status: str
+    match_count: int
     rows: list[dict[str, Any]]
 
 
@@ -100,6 +98,29 @@ def get_env_or_raise(name: str) -> str:
     return value
 
 
+def get_env_fallback(name: str, fallback: str | None = None) -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+    if fallback is not None:
+        return fallback
+    raise RuntimeError(f"Missing required environment variable: {name}")
+
+
+def connect_monitor_db() -> psycopg.Connection:
+    conninfo = {
+        "host": os.getenv("PG_MONITOR_HOST") or get_env_or_raise("PG_PROVISION_HOST"),
+        "port": int(os.getenv("PG_MONITOR_PORT") or get_env_or_raise("PG_PROVISION_PORT")),
+        "dbname": os.getenv("PG_MONITOR_DB") or "sandix_price_monitor",
+        "user": os.getenv("PG_MONITOR_USER") or get_env_or_raise("PG_PROVISION_USER"),
+        "password": os.getenv("PG_MONITOR_PASSWORD") or get_env_or_raise("PG_PROVISION_PASSWORD"),
+    }
+    sslmode = os.getenv("PG_MONITOR_SSLMODE") or os.getenv("PG_PROVISION_SSLMODE")
+    if sslmode:
+        conninfo["sslmode"] = sslmode
+    return psycopg.connect(**conninfo, autocommit=True)
+
+
 def parse_price_decimal(raw_value: str | None) -> Decimal | None:
     if not raw_value:
         return None
@@ -137,21 +158,7 @@ def parse_upgates_json(html: str) -> dict[str, Any] | None:
 
 
 def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
-    host = get_env_or_raise("SCRAPER_DB_HOST")
-    port = get_env_or_raise("SCRAPER_DB_PORT")
-    db_name = get_env_or_raise("SCRAPER_DB_NAME")
-    user = get_env_or_raise("SCRAPER_DB_USER")
-    password = get_env_or_raise("SCRAPER_DB_PASSWORD")
-
-    if user != "price_scraper_ro":
-        logger.warning("SCRAPER_DB_USER is %s, expected price_scraper_ro", user)
-
-    conninfo = (
-        f"host={host} port={port} dbname={db_name} "
-        f"user={user} password={password}"
-    )
-
-    with psycopg.connect(conninfo, options="-c default_transaction_read_only=on") as conn:
+    with connect_monitor_db() as conn:
         with conn.cursor() as cur:
             cur.execute(DB_QUERY)
             rows = cur.fetchall()
@@ -167,6 +174,260 @@ def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
             unique_parts.append(value)
 
     return unique_parts[:100]
+
+
+def ensure_competitor_id(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scraper.competitor (competitor_code, competitor_name, base_url, default_currency, enabled)
+            VALUES ('PROFIBAGR', 'Profibagr', 'https://www.profibagr.cz', 'CZK', true)
+            ON CONFLICT (competitor_code) DO UPDATE SET
+                competitor_name = EXCLUDED.competitor_name,
+                base_url = EXCLUDED.base_url,
+                default_currency = EXCLUDED.default_currency,
+                enabled = EXCLUDED.enabled
+            RETURNING competitor_id
+            """
+        )
+        return int(cur.fetchone()[0])
+
+
+def resolve_products_for_search_identifier(conn: psycopg.Connection, search_identifier: str) -> list[dict[str, Any]]:
+    normalized = normalize_part_number_loose(search_identifier)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT
+                psi.product_id,
+                psi.source_identifier,
+                psi.search_identifier,
+                psi.search_identifier_normalized
+            FROM core.product_search_identifier_v psi
+            JOIN core.product_current_v c ON c.product_id = psi.product_id
+            WHERE c.web_enabled = true
+              AND c.available_quantity > 0
+              AND psi.search_identifier_normalized = %s
+            ORDER BY psi.product_id, psi.source_identifier
+            """,
+            (normalized,),
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "product_id": int(product_id),
+            "source_identifier": source_identifier,
+            "search_identifier": search_identifier_value,
+            "search_identifier_normalized": search_identifier_normalized,
+        }
+        for product_id, source_identifier, search_identifier_value, search_identifier_normalized in rows
+    ]
+
+
+def create_scrape_run(
+    conn: psycopg.Connection,
+    run_id: uuid.UUID,
+    competitor_id: int,
+    started_at: datetime,
+    queue_count: int,
+    source_database: str,
+    raw_file_path: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scraper.scrape_run (
+                run_id,
+                competitor_id,
+                started_at,
+                status,
+                queue_count,
+                search_success_count,
+                not_found_count,
+                error_count,
+                offer_count,
+                raw_file_path,
+                raw_file_sha256,
+                scraper_version,
+                error_message
+            ) VALUES (%s, %s, %s, 'RUNNING', %s, 0, 0, 0, 0, %s, NULL, %s, NULL)
+            """,
+            (
+                run_id,
+                competitor_id,
+                started_at,
+                queue_count,
+                raw_file_path,
+                f"{source_database}::profibagr_scraper",
+            ),
+        )
+
+
+def create_search_request(
+    conn: psycopg.Connection,
+    run_id: uuid.UUID,
+    search_identifier: str,
+) -> int:
+    normalized = normalize_part_number(search_identifier)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scraper.search_request (
+                run_id,
+                searched_identifier,
+                searched_identifier_norm,
+                requested_at,
+                completed_at,
+                status,
+                match_count,
+                http_status,
+                error_type,
+                error_message
+            ) VALUES (%s, %s, %s, now(), NULL, 'RUNNING', NULL, NULL, NULL, NULL)
+            RETURNING search_request_id
+            """,
+            (run_id, search_identifier, normalized),
+        )
+        return int(cur.fetchone()[0])
+
+
+def record_search_request_products(
+    conn: psycopg.Connection,
+    search_request_id: int,
+    products: list[dict[str, Any]],
+) -> None:
+    if not products:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO scraper.search_request_product (
+                search_request_id,
+                product_id,
+                source_identifier
+            ) VALUES (%s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            [
+                (search_request_id, row["product_id"], row["source_identifier"])
+                for row in products
+            ],
+        )
+
+
+def record_offer_observations(
+    conn: psycopg.Connection,
+    search_request_id: int,
+    rows: list[dict[str, Any]],
+) -> None:
+    offer_rows = [row for row in rows if row.get("status") == "OK"]
+    if not offer_rows:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO scraper.offer_observation (
+                search_request_id,
+                found_identifier,
+                found_identifier_norm,
+                competitor_product_name,
+                price_without_vat,
+                price_with_vat,
+                currency,
+                availability_raw,
+                product_url,
+                observed_at,
+                match_type,
+                match_confidence
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s
+            )
+            """,
+            [
+                (
+                    search_request_id,
+                    row.get("found_part_number") or None,
+                    normalize_part_number_loose(row.get("found_part_number")),
+                    row.get("product_name") or None,
+                    Decimal(row["price_without_vat"]) if row.get("price_without_vat") else None,
+                    Decimal(row["price_with_vat"]) if row.get("price_with_vat") else None,
+                    row.get("currency") or None,
+                    row.get("availability_raw") or None,
+                    row.get("product_url") or None,
+                    "STRICT" if normalize_part_number(row.get("search_part_number")) in normalize_part_number(row.get("found_part_number")) else "LOOSE",
+                    Decimal("1.0000")
+                    if normalize_part_number(row.get("search_part_number")) in normalize_part_number(row.get("found_part_number"))
+                    else Decimal("0.7500"),
+                )
+                for row in offer_rows
+            ],
+        )
+
+
+def finalize_search_request(
+    conn: psycopg.Connection,
+    search_request_id: int,
+    result: FetchResult,
+    finished_at: datetime,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.search_request
+            SET completed_at = %s,
+                status = %s,
+                match_count = %s,
+                http_status = NULL,
+                error_type = CASE WHEN %s IN ('OK', 'NOT_FOUND') THEN NULL ELSE %s END,
+                error_message = CASE WHEN %s IN ('OK', 'NOT_FOUND') THEN NULL ELSE %s END
+            WHERE search_request_id = %s
+            """,
+            (
+                finished_at,
+                result.status,
+                result.match_count,
+                result.status,
+                result.status,
+                result.status,
+                result.status,
+                search_request_id,
+            ),
+        )
+
+
+def finalize_scrape_run(
+    conn: psycopg.Connection,
+    run_id: uuid.UUID,
+    finished_at: datetime,
+    search_success_count: int,
+    not_found_count: int,
+    error_count: int,
+    offer_count: int,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.scrape_run
+            SET finished_at = %s,
+                status = CASE WHEN %s = 0 THEN 'SUCCESS' WHEN %s > 0 AND %s > 0 THEN 'PARTIAL' ELSE 'FAILED' END,
+                search_success_count = %s,
+                not_found_count = %s,
+                error_count = %s,
+                offer_count = %s
+            WHERE run_id = %s
+            """,
+            (
+                finished_at,
+                error_count,
+                error_count,
+                search_success_count,
+                search_success_count,
+                not_found_count,
+                error_count,
+                offer_count,
+                run_id,
+            ),
+        )
 
 
 def parse_search_product_urls(html: str) -> list[str]:
@@ -318,6 +579,7 @@ def scrape_part_number(
         logger.error("TIMEOUT: %s", search_part_number)
         return FetchResult(
             status="TIMEOUT",
+            match_count=0,
             rows=[
                 status_row(
                     run_id,
@@ -334,6 +596,7 @@ def scrape_part_number(
         logger.error("HTTP ERROR: %s", search_part_number)
         return FetchResult(
             status="HTTP_ERROR",
+            match_count=0,
             rows=[
                 status_row(
                     run_id,
@@ -351,6 +614,7 @@ def scrape_part_number(
         logger.error("BLOCKED: %s (%s)", search_part_number, response.status_code)
         return FetchResult(
             status="BLOCKED",
+            match_count=0,
             rows=[
                 status_row(
                     run_id,
@@ -369,6 +633,7 @@ def scrape_part_number(
         logger.error("HTTP ERROR: %s (%s)", search_part_number, response.status_code)
         return FetchResult(
             status="HTTP_ERROR",
+            match_count=0,
             rows=[
                 status_row(
                     run_id,
@@ -390,6 +655,7 @@ def scrape_part_number(
         logger.info("NOT FOUND: %s", search_part_number)
         return FetchResult(
             status="NOT_FOUND",
+            match_count=0,
             rows=[status_row(run_id, search_part_number, "NOT_FOUND", 0, scraped_at)],
         )
 
@@ -498,6 +764,7 @@ def scrape_part_number(
     if not rows:
         return FetchResult(
             status="UNEXPECTED_RESPONSE",
+            match_count=0,
             rows=[
                 status_row(
                     run_id,
@@ -513,7 +780,7 @@ def scrape_part_number(
         )
 
     overall_status = "OK" if any(row.get("status") == "OK" for row in rows) else rows[0]["status"]
-    return FetchResult(status=overall_status, rows=rows)
+    return FetchResult(status=overall_status, match_count=len(product_urls), rows=rows)
 
 
 def write_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
@@ -536,10 +803,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent / ".env")
     args = parse_args()
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scrape_run_id = uuid.uuid4()
     base_dir = Path(__file__).resolve().parent
     logs_dir = base_dir / "logs"
     data_dir = base_dir / "data" / "raw" / "profibagr"
@@ -571,12 +839,103 @@ def main() -> int:
     }
 
     all_rows: list[dict[str, Any]] = []
-    with httpx.Client(base_url=BASE_URL, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True) as client:
-        for index, part_number in enumerate(part_numbers):
-            result = scrape_part_number(client, run_id, part_number, logger)
-            all_rows.extend(result.rows)
-            if index < len(part_numbers) - 1:
-                time.sleep(REQUEST_DELAY_SECONDS)
+    search_success_count = 0
+    not_found_count = 0
+    error_count = 0
+    offer_count = 0
+
+    try:
+        monitor_conn = connect_monitor_db()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("MONITOR DATABASE ERROR")
+        logger.error("END")
+        print(f"Monitor database error: {exc}")
+        return 1
+
+    try:
+        competitor_id = ensure_competitor_id(monitor_conn)
+        create_scrape_run(
+            monitor_conn,
+            run_id=scrape_run_id,
+            competitor_id=competitor_id,
+            started_at=datetime.now(timezone.utc),
+            queue_count=len(part_numbers),
+            source_database=get_env_or_raise("POHODA_DB_NAME"),
+            raw_file_path=str(csv_path),
+        )
+        with httpx.Client(base_url=BASE_URL, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            for index, part_number in enumerate(part_numbers):
+                search_request_id = None
+                try:
+                    products = resolve_products_for_search_identifier(monitor_conn, part_number)
+                    search_request_id = create_search_request(monitor_conn, scrape_run_id, part_number)
+                    record_search_request_products(monitor_conn, search_request_id, products)
+                    result = scrape_part_number(client, run_id, part_number, logger)
+                    record_offer_observations(monitor_conn, search_request_id, result.rows)
+                    finalize_search_request(monitor_conn, search_request_id, result, datetime.now(timezone.utc))
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.exception("MONITOR WRITE ERROR on %s", part_number)
+                    if search_request_id is not None:
+                        try:
+                            with monitor_conn.cursor() as cur:
+                                cur.execute(
+                                    """
+                                    UPDATE scraper.search_request
+                                    SET completed_at = %s,
+                                        status = 'FAILED',
+                                        match_count = COALESCE(match_count, 0),
+                                        http_status = NULL,
+                                        error_type = 'FAILED',
+                                        error_message = %s
+                                    WHERE search_request_id = %s
+                                    """,
+                                    (datetime.now(timezone.utc), str(exc), search_request_id),
+                                )
+                        except Exception:  # pylint: disable=broad-except
+                            pass
+                    error_count += 1
+                    break
+
+                all_rows.extend(result.rows)
+                if result.status == "OK":
+                    search_success_count += 1
+                    offer_count += sum(1 for row in result.rows if row.get("status") == "OK")
+                elif result.status == "NOT_FOUND":
+                    not_found_count += 1
+                else:
+                    error_count += 1
+
+                if index < len(part_numbers) - 1:
+                    time.sleep(REQUEST_DELAY_SECONDS)
+
+        finalize_scrape_run(
+            monitor_conn,
+            scrape_run_id,
+            datetime.now(timezone.utc),
+            search_success_count=search_success_count,
+            not_found_count=not_found_count,
+            error_count=error_count,
+            offer_count=offer_count,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        try:
+            finalize_scrape_run(
+                monitor_conn,
+                scrape_run_id,
+                datetime.now(timezone.utc),
+                search_success_count=search_success_count,
+                not_found_count=not_found_count,
+                error_count=error_count + 1,
+                offer_count=offer_count,
+            )
+        except Exception:  # pylint: disable=broad-except
+            monitor_conn.rollback()
+        logger.exception("DATABASE ERROR")
+        logger.error("END")
+        print(f"Database error: {exc}")
+        return 1
+    finally:
+        monitor_conn.close()
 
     write_csv(csv_path, all_rows)
     logger.info("CSV CREATED: %s", csv_path)

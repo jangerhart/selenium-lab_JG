@@ -1,14 +1,15 @@
-# Profibagr Scraper PoC
+# Profibagr Scraper
 
-First PoC scraper for price monitoring on `https://www.profibagr.cz/`.
+Profibagr scraper for price monitoring on `https://www.profibagr.cz/`.
 
 ## What it does
 
-- reads up to 10 part numbers from PostgreSQL view `scraper.v_profibagr_search_queue`
+- reads up to 100 search identifiers from PostgreSQL view `scraper.v_search_queue`
 - searches each part number on Profibagr
 - opens product detail pages and extracts key fields
 - writes output into CSV (`;` delimiter, UTF-8)
 - writes run log file
+- writes run history and observations into `sandix_price_monitor`
 
 ## Setup
 

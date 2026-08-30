@@ -1,0 +1,3 @@
+python-tds
+python-dotenv
+psycopg[binary]
