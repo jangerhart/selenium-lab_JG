@@ -21,12 +21,14 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - PostgreSQL provisioning account now owns and can write to `sandix_price_monitor` and `sandix_price_analytics`.
 - `sandix_price_monitor` and `sandix_price_analytics` now exist and are bootstrapped.
 - `Sandix/pohoda-etl/` now bootstraps PostgreSQL schemas/tables/views and writes monitor snapshots.
+- `Sandix/pohoda-etl/build_test_analytics.py` now builds a test analytics snapshot from the latest successful Profibagr batch.
 - POHODA ETL now writes current snapshots into `sandix_price_monitor` as well as RAW CSV.
 - Profibagr scraper now writes scrape runs, search requests and offer observations into `sandix_price_monitor`.
 - Final `scraper.scrape_run` state after cleanup: `SUCCESS=1`, `FAILED=1`, `RUNNING=0`.
 - Production POHODA import now contains 25,436 rows in `source_pohoda.stock_current` and `core.product`.
 - Current eligibility queue in `scraper.v_search_queue` contains 1,412 search identifiers.
 - Profibagr full batch against the production queue completed successfully with 100 search identifiers processed.
+- Analytics snapshot tables now exist in `sandix_price_analytics.reporting`.
 
 ## Files changed
 
@@ -39,6 +41,7 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - `Sandix/pohoda-etl/README.md`
 - `Sandix/pohoda-etl/bootstrap_postgres.py`
 - `Sandix/pohoda-etl/pohoda_etl.py`
+- `Sandix/pohoda-etl/build_test_analytics.py`
 - `Sandix/profibagr-scraper/README.md`
 - `Sandix/profibagr-scraper/profibagr_scraper.py`
 
@@ -65,6 +68,8 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - `python profibagr_scraper.py --part-number "32/925895"`
 - `python pohoda_etl.py` against production POHODA
 - `python profibagr_scraper.py` against the production eligibility queue
+- `python -m py_compile build_test_analytics.py bootstrap_postgres.py`
+- `python build_test_analytics.py`
 
 ## Results
 
@@ -87,6 +92,9 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - Production POHODA ETL loaded 25,431 source rows and then 5 additional smoke rows from earlier tests now coexist in the monitor DB for a total of 25,436 current rows.
 - Profibagr production batch produced `17 OK`, `83 NOT_FOUND`, `0 error` in the latest successful run, with `30` total offers extracted.
 - `scraper.search_request_product` currently has 174 rows and `scraper.offer_observation` has 51 rows.
+- `sandix_price_analytics.reporting.profibagr_batch_summary` now has one test snapshot row.
+- `sandix_price_analytics.reporting.profibagr_price_gap` now has 17 rows for the latest successful batch.
+- The first test analytics run surfaced the top price gaps, including several 100 percent gaps where the competitor price was zero.
 
 ## Unresolved issues
 
@@ -106,3 +114,4 @@ Build a system for automated competitor price monitoring for JCB spare parts.
 - Next step: wire Profibagr scraper to the new monitor export/search queue model, then migrate away from `scraper.v_profibagr_search_queue` only after its consumers are mapped.
 - Next step: decide whether `scraper.v_search_queue` should stay empty for this year database or whether the eligibility rule needs adjustment before the next full batch run.
 - Next step: inspect the 17 successful requests and decide whether the search identifier transformation needs broader alias coverage for additional Profibagr matches.
+- Next step: expose the analytics tables in Metabase and decide whether zero-price competitor rows should be filtered from the price-gap report.

@@ -322,6 +322,77 @@ ANALYTICS_DDL = [
     "CREATE SCHEMA IF NOT EXISTS dim",
     "CREATE SCHEMA IF NOT EXISTS fact",
     "CREATE SCHEMA IF NOT EXISTS reporting",
+    """
+    CREATE TABLE IF NOT EXISTS reporting.profibagr_batch_summary (
+        analytics_run_id uuid PRIMARY KEY,
+        source_run_id uuid NOT NULL,
+        competitor_code text NOT NULL,
+        competitor_name text NOT NULL,
+        generated_at timestamptz NOT NULL,
+        batch_started_at timestamptz NOT NULL,
+        batch_finished_at timestamptz,
+        queue_count integer NOT NULL,
+        search_success_count integer NOT NULL,
+        not_found_count integer NOT NULL,
+        error_count integer NOT NULL,
+        offer_count integer NOT NULL,
+        matched_product_count integer NOT NULL,
+        positive_gap_count integer NOT NULL,
+        negative_gap_count integer NOT NULL,
+        neutral_gap_count integer NOT NULL,
+        max_gap_pct numeric(10,2),
+        avg_gap_pct numeric(10,2)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS reporting.profibagr_price_gap (
+        analytics_run_id uuid NOT NULL,
+        source_run_id uuid NOT NULL,
+        product_id bigint NOT NULL,
+        source_identifier text,
+        searched_identifier text NOT NULL,
+        product_name text,
+        own_selling_price_net numeric(18,4),
+        own_selling_price_gross numeric(18,4),
+        best_competitor_price_without_vat numeric(18,4),
+        best_competitor_price_with_vat numeric(18,4),
+        price_gap_net numeric(18,4),
+        price_gap_gross numeric(18,4),
+        price_gap_pct numeric(10,2),
+        offer_count integer NOT NULL,
+        search_request_count integer NOT NULL,
+        generated_at timestamptz NOT NULL,
+        PRIMARY KEY (analytics_run_id, product_id),
+        CONSTRAINT fk_profibagr_price_gap_summary
+            FOREIGN KEY (analytics_run_id) REFERENCES reporting.profibagr_batch_summary(analytics_run_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profibagr_price_gap_run_gap
+    ON reporting.profibagr_price_gap (analytics_run_id, price_gap_pct DESC NULLS LAST, price_gap_gross DESC NULLS LAST)
+    """,
+    """
+    CREATE OR REPLACE VIEW reporting.profibagr_price_gap_v AS
+    SELECT
+        analytics_run_id,
+        source_run_id,
+        product_id,
+        source_identifier,
+        searched_identifier,
+        product_name,
+        own_selling_price_net,
+        own_selling_price_gross,
+        best_competitor_price_without_vat,
+        best_competitor_price_with_vat,
+        price_gap_net,
+        price_gap_gross,
+        price_gap_pct,
+        offer_count,
+        search_request_count,
+        generated_at
+    FROM reporting.profibagr_price_gap
+    ORDER BY price_gap_pct DESC NULLS LAST, price_gap_gross DESC NULLS LAST
+    """,
 ]
 
 
