@@ -23,12 +23,12 @@ from dotenv import load_dotenv
 BASE_URL = "https://www.profibagr.cz"
 SEARCH_PATH = "/search"
 REQUEST_TIMEOUT_SECONDS = 15
-REQUEST_DELAY_SECONDS = 1
+REQUEST_DELAY_SECONDS_DEFAULT = 3.0
 DB_QUERY = """
 SELECT search_identifier
 FROM scraper.v_search_queue
 ORDER BY search_identifier_normalized, search_identifier
-LIMIT 100;
+LIMIT 500;
 """
 
 CSV_HEADERS = [
@@ -107,6 +107,16 @@ def get_env_fallback(name: str, fallback: str | None = None) -> str:
     raise RuntimeError(f"Missing required environment variable: {name}")
 
 
+def get_request_delay_seconds() -> float:
+    raw_value = os.getenv("REQUEST_DELAY_SECONDS")
+    if not raw_value:
+        return REQUEST_DELAY_SECONDS_DEFAULT
+    try:
+        return max(float(raw_value), 0.0)
+    except ValueError as exc:
+        raise RuntimeError("REQUEST_DELAY_SECONDS must be a number") from exc
+
+
 def connect_monitor_db() -> psycopg.Connection:
     conninfo = {
         "host": os.getenv("PG_MONITOR_HOST") or get_env_or_raise("PG_PROVISION_HOST"),
@@ -173,7 +183,7 @@ def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
             seen.add(value)
             unique_parts.append(value)
 
-    return unique_parts[:100]
+    return unique_parts[:500]
 
 
 def ensure_competitor_id(conn: psycopg.Connection) -> int:
@@ -805,6 +815,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     load_dotenv(Path(__file__).resolve().parent / ".env")
     args = parse_args()
+    request_delay_seconds = get_request_delay_seconds()
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     scrape_run_id = uuid.uuid4()
@@ -906,7 +917,7 @@ def main() -> int:
                     error_count += 1
 
                 if index < len(part_numbers) - 1:
-                    time.sleep(REQUEST_DELAY_SECONDS)
+                    time.sleep(request_delay_seconds)
 
         finalize_scrape_run(
             monitor_conn,

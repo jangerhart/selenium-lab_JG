@@ -145,6 +145,7 @@ Responsibilities:
 * reference-price calculation
 * pricing recommendations
 * Metabase datasets
+* editable suffix catalog for part-number variant classification
 
 The final schema of this database is intentionally deferred.
 
@@ -1586,6 +1587,8 @@ core.product_identifier
 ```
 
 and its management UI is backlog.
+
+The current working implementation keeps variant suffixes in `reporting.variant_suffix_catalog` and the ETL always processes them in descending length order, regardless of insertion order.
 
 The database model must remain compatible with adding this functionality later.
 

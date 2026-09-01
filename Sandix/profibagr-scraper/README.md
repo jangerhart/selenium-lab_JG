@@ -4,7 +4,7 @@ Profibagr scraper for price monitoring on `https://www.profibagr.cz/`.
 
 ## What it does
 
-- reads up to 100 search identifiers from PostgreSQL view `scraper.v_search_queue`
+- reads up to 500 search identifiers from PostgreSQL view `scraper.v_search_queue`
 - searches each part number on Profibagr
 - opens product detail pages and extracts key fields
 - writes output into CSV (`;` delimiter, UTF-8)
@@ -23,6 +23,10 @@ cp .env.example .env
 Set `.env` with DB credentials. Use read-only user:
 
 `SCRAPER_DB_USER=price_scraper_ro`
+
+Optional pacing:
+
+`REQUEST_DELAY_SECONDS=3`
 
 ## Run
 

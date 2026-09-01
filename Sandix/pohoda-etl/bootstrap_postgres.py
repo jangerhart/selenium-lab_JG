@@ -1,8 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
 import psycopg
 from dotenv import load_dotenv
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 
 def get_env(name: str) -> str:
@@ -317,7 +324,7 @@ MONITOR_DDL = [
 ]
 
 
-ANALYTICS_DDL = [
+LEGACY_ANALYTICS_DDL = [
     "CREATE SCHEMA IF NOT EXISTS mart",
     "CREATE SCHEMA IF NOT EXISTS dim",
     "CREATE SCHEMA IF NOT EXISTS fact",
@@ -394,6 +401,9 @@ ANALYTICS_DDL = [
     ORDER BY price_gap_pct DESC NULLS LAST, price_gap_gross DESC NULLS LAST
     """,
 ]
+
+
+from sandix.analytics import ANALYTICS_DDL
 
 
 def execute_sql(conn: psycopg.Connection, statements: list[str]) -> None:

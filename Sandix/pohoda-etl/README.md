@@ -31,10 +31,10 @@ Bootstrap PostgreSQL schemas and tables:
 python3 bootstrap_postgres.py
 ```
 
-Build a test analytics snapshot from the latest successful Profibagr batch:
+The first usable analytics ETL now lives in `../analytics-etl/`:
 
 ```bash
-python3 build_test_analytics.py
+python3 ../analytics-etl/analytics_etl.py
 ```
 
 The ETL reads POHODA from `POHODA_DB_*` and writes to `PG_MONITOR_*` if present, otherwise it falls back to the provisioning PostgreSQL account.
