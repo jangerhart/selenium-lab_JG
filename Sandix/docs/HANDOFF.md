@@ -154,6 +154,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Dashboard layout is now full-width with a single vertical stack of full-width cards.
 - All five Metabase cards now execute successfully again and the dashboard is usable.
 - The comparison table now exposes the Profibagr product URL as a clickable-looking string column.
+- Profibagr replacement detection is still weak; alternative matching needs separate manual analysis.
 
 ## Unresolved issues
 
@@ -161,6 +162,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Its other consumers still need to be understood before changing that view.
 - `scraper.v_search_queue` currently uses `ids` as the initial generic search identifier placeholder; legacy transformation logic still needs to be migrated carefully.
 - The legacy PoC analytics tables `reporting.profibagr_batch_summary` and `reporting.profibagr_price_gap` still exist; the new ETL does not use them.
+- Profibagr replacement detection still needs investigation before treating `ALTERNATIVE` classification as trustworthy.
 
 ## Recommended next step
 
