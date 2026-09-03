@@ -179,13 +179,12 @@ def classify_offer_rows(
         )
         if sandix_match.scope != competitor_match.scope:
             mismatch_count += 1
-            continue
 
         scoped_row = dict(row)
-        scoped_row["comparison_scope"] = sandix_match.scope
+        scoped_row["comparison_scope"] = competitor_match.scope
         scoped_row["sandix_variant_suffix"] = sandix_match.matched_suffix
         scoped_row["competitor_variant_suffix"] = competitor_match.matched_suffix
-        scoped_rows[sandix_match.scope].append(scoped_row)
+        scoped_rows[competitor_match.scope].append(scoped_row)
 
     return scoped_rows, mismatch_count
 

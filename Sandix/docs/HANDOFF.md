@@ -147,6 +147,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase cards `42`, `52`, `53`, and `54` now query the refreshed latest views successfully.
 - Profibagr product pages that contain `Original` are now classified as `ORIGINAL`; current filter snapshot shows `10` `BASE_MATCH` rows and `7` `TEXT_ORIGINAL` rows for Profibagr observations.
 - Profibagr product pages without `Original` now classify as `ALTERNATIVE`; example `https://www.profibagr.cz/p/hadice-320-04731-c` is now in the filter snapshot as `ALTERNATIVE / NO_ORIGINAL_MARKER`.
+- Latest Metabase alternative analytics now show `45` rows in `reporting.profibagr_latest_price_comparison_alternative_v` after switching competitor scoping to `Original` keyword detection.
 - Metabase dashboard `Sandix - filtr part numberů` now contains cards `52` and `53` for filter review.
 - Card `53` is now `Filtr part numberů - Sandix originál a očištěná PN` and shows only `SANDIX / SOURCE_TOKEN` rows from the POHODA ETL snapshot.
 - Metabase dashboard `Sandix - Profibagr analytika` now includes cards `47` to `51` for the alternative scope.

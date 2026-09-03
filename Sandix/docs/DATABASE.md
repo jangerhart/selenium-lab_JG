@@ -1595,6 +1595,7 @@ The source part-number normalization used for searching keeps `/` intact and onl
 The Profibagr scraper updates `scraper.scrape_run.last_heartbeat_at` during progress and aborts stale `RUNNING` runs on startup.
 Profibagr observations are currently classified as `ORIGINAL` when `found_identifier`, `competitor_product_name`, or `product_url` includes the `Original` keyword, otherwise they fall back to suffix and base-match heuristics.
 The current working rule for Profibagr observations treats any page without `Original` as a replacement candidate; for example `https://www.profibagr.cz/p/hadice-320-04731-c` is classified as `ALTERNATIVE` in the filter snapshot.
+The analytics ETL now routes competitor rows into `ORIGINAL` or `ALTERNATIVE` directly from the competitor keyword rule, so `reporting.profibagr_latest_price_comparison_alternative_v` is populated again.
 
 The database model must remain compatible with adding this functionality later.
 
