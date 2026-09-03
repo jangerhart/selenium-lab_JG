@@ -63,12 +63,13 @@ class PartNumberFilterTest(unittest.TestCase):
         self.assertEqual(original_keyword.variant_scope, "ORIGINAL")
         self.assertEqual(original_keyword.classification_reason, "TEXT_ORIGINAL")
 
-        original = classify_competitor_observation("320/A7120", "320/A7120", "Tesneni JCB", "https://example.test/p/320-a7120", suffixes)
-        self.assertEqual(original.variant_scope, "ORIGINAL")
-        self.assertEqual(original.classification_reason, "BASE_MATCH")
+        replacement = classify_competitor_observation("320/A7120", "320/A7120", "Tesneni JCB", "https://example.test/p/320-a7120", suffixes)
+        self.assertEqual(replacement.variant_scope, "ALTERNATIVE")
+        self.assertEqual(replacement.classification_reason, "NO_ORIGINAL_MARKER")
 
         unresolved = classify_competitor_observation("320/A7120", "SN70340", "Filter", "https://example.test/p/sn70340", suffixes)
-        self.assertEqual(unresolved.variant_scope, "UNRESOLVED")
+        self.assertEqual(unresolved.variant_scope, "ALTERNATIVE")
+        self.assertEqual(unresolved.classification_reason, "NO_ORIGINAL_MARKER")
 
 
 if __name__ == "__main__":

@@ -120,7 +120,6 @@ def classify_competitor_observation(
     original_hint = next((value for value in ORIGINAL_HINTS if normalize_variant_token(value) in searchable_text), None)
     hint = next((value for value in ALT_HINTS if normalize_variant_token(value) in searchable_text), None)
 
-    searched_base_identifier = strip_variant_suffixes(searched_identifier, suffixes)[0] if searched_identifier else ""
     if original_hint:
         scope = "ORIGINAL"
         reason = "TEXT_ORIGINAL"
@@ -130,12 +129,9 @@ def classify_competitor_observation(
     elif hint:
         scope = "ALTERNATIVE"
         reason = "TEXT_HINT"
-    elif searched_base_identifier and normalized_base_identifier and normalized_base_identifier == searched_base_identifier:
-        scope = "ORIGINAL"
-        reason = "BASE_MATCH"
     else:
-        scope = "UNRESOLVED"
-        reason = "NO_ALT_MARKER"
+        scope = "ALTERNATIVE"
+        reason = "NO_ORIGINAL_MARKER"
 
     return IdentifierClassification(
         raw_identifier=raw_source,
