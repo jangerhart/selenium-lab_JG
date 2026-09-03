@@ -53,7 +53,17 @@ class PartNumberFilterTest(unittest.TestCase):
         self.assertEqual(alt.variant_scope, "ALTERNATIVE")
         self.assertEqual(alt.classification_reason, "IDENTIFIER_SUFFIX")
 
-        original = classify_competitor_observation("320/A7120", "320/A7120", "Original JCB part", "https://example.test/p/320-a7120", suffixes)
+        original_keyword = classify_competitor_observation(
+            "7247000",
+            "7247000-C",
+            "Cep 7247000 Original",
+            "https://www.profibagr.cz/p/cep-7247000-original",
+            suffixes,
+        )
+        self.assertEqual(original_keyword.variant_scope, "ORIGINAL")
+        self.assertEqual(original_keyword.classification_reason, "TEXT_ORIGINAL")
+
+        original = classify_competitor_observation("320/A7120", "320/A7120", "Tesneni JCB", "https://example.test/p/320-a7120", suffixes)
         self.assertEqual(original.variant_scope, "ORIGINAL")
         self.assertEqual(original.classification_reason, "BASE_MATCH")
 

@@ -145,6 +145,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Profibagr scraper now writes `last_heartbeat_at` and `last_progress` into `scraper.scrape_run`, aborts stale `RUNNING` runs on startup, and finalizes `SIGTERM`/`SIGINT` as `ABORTED`.
 - Latest Profibagr scrape run `c2165267-c2e0-4ef9-8472-4c232fe9fa3f` completed with `37` successful requests, `36` matched products, `45` raw offers, `43` valid offers, `1` excluded offer, and `380` total offers.
 - Metabase cards `42`, `52`, `53`, and `54` now query the refreshed latest views successfully.
+- Profibagr product pages that contain `Original` are now classified as `ORIGINAL`; current filter snapshot shows `10` `BASE_MATCH` rows and `7` `TEXT_ORIGINAL` rows for Profibagr observations.
 - Metabase dashboard `Sandix - filtr part numberů` now contains cards `52` and `53` for filter review.
 - Card `53` is now `Filtr part numberů - Sandix originál a očištěná PN` and shows only `SANDIX / SOURCE_TOKEN` rows from the POHODA ETL snapshot.
 - Metabase dashboard `Sandix - Profibagr analytika` now includes cards `47` to `51` for the alternative scope.

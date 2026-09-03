@@ -19,6 +19,10 @@ ALT_HINTS = (
     "PREMIUMLINE",
 )
 
+ORIGINAL_HINTS = (
+    "ORIGINAL",
+)
+
 TOKEN_SPLIT_RE = re.compile(r"[\s;,|]+")
 
 
@@ -113,10 +117,14 @@ def classify_competitor_observation(
     normalized_base_identifier, matched_suffixes = strip_variant_suffixes(raw_source, suffixes)
 
     searchable_text = normalize_variant_token(" ".join([found_identifier or "", competitor_product_name or "", product_url or ""]))
+    original_hint = next((value for value in ORIGINAL_HINTS if normalize_variant_token(value) in searchable_text), None)
     hint = next((value for value in ALT_HINTS if normalize_variant_token(value) in searchable_text), None)
 
     searched_base_identifier = strip_variant_suffixes(searched_identifier, suffixes)[0] if searched_identifier else ""
-    if matched_suffixes:
+    if original_hint:
+        scope = "ORIGINAL"
+        reason = "TEXT_ORIGINAL"
+    elif matched_suffixes:
         scope = "ALTERNATIVE"
         reason = "IDENTIFIER_SUFFIX"
     elif hint:

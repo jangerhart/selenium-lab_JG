@@ -1593,6 +1593,7 @@ and its management UI is backlog.
 The current working implementation keeps variant suffixes in `reporting.variant_suffix_catalog` and the ETL always processes them in descending length order, regardless of insertion order.
 The source part-number normalization used for searching keeps `/` intact and only strips whitespace and hyphen separators.
 The Profibagr scraper updates `scraper.scrape_run.last_heartbeat_at` during progress and aborts stale `RUNNING` runs on startup.
+Profibagr observations are currently classified as `ORIGINAL` when `found_identifier`, `competitor_product_name`, or `product_url` includes the `Original` keyword, otherwise they fall back to suffix and base-match heuristics.
 
 The database model must remain compatible with adding this functionality later.
 
