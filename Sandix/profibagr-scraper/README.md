@@ -8,6 +8,7 @@ Profibagr scraper for price monitoring on `https://www.profibagr.cz/`.
 - searches each part number on Profibagr
 - opens product detail pages and extracts key fields
 - writes output into CSV (`;` delimiter, UTF-8)
+- updates `scraper.scrape_run` heartbeat/progress and aborts stale runs on startup
 - writes run log file
 - writes run history and observations into `sandix_price_monitor`
 

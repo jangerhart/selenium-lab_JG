@@ -142,6 +142,9 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Part-number normalization now preserves `/` in both original and cleaned PN fields, and the POHODA search-identifier view uses the same rule.
 - Profibagr scraper now deduplicates queue items after suffix stripping, so entries like `02/100284AB`, `02/100284AD`, and `02/100284AH` collapse to one `02/100284`.
 - Latest Profibagr scrape run started with `INPUT COUNT: 447` after suffix-base dedupe and completed successfully.
+- Profibagr scraper now writes `last_heartbeat_at` and `last_progress` into `scraper.scrape_run`, aborts stale `RUNNING` runs on startup, and finalizes `SIGTERM`/`SIGINT` as `ABORTED`.
+- Latest Profibagr scrape run `c2165267-c2e0-4ef9-8472-4c232fe9fa3f` completed with `37` successful requests, `36` matched products, `45` raw offers, `43` valid offers, `1` excluded offer, and `380` total offers.
+- Metabase cards `42`, `52`, `53`, and `54` now query the refreshed latest views successfully.
 - Metabase dashboard `Sandix - filtr part numberů` now contains cards `52` and `53` for filter review.
 - Card `53` is now `Filtr part numberů - Sandix originál a očištěná PN` and shows only `SANDIX / SOURCE_TOKEN` rows from the POHODA ETL snapshot.
 - Metabase dashboard `Sandix - Profibagr analytika` now includes cards `47` to `51` for the alternative scope.

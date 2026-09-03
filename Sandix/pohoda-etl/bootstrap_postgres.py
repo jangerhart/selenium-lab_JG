@@ -146,6 +146,8 @@ MONITOR_DDL = [
         started_at timestamptz NOT NULL,
         finished_at timestamptz,
         status text NOT NULL,
+        last_heartbeat_at timestamptz,
+        last_progress text,
         queue_count integer,
         search_success_count integer,
         not_found_count integer,
@@ -159,6 +161,8 @@ MONITOR_DDL = [
             FOREIGN KEY (competitor_id) REFERENCES scraper.competitor(competitor_id)
     )
     """,
+    "ALTER TABLE scraper.scrape_run ADD COLUMN IF NOT EXISTS last_heartbeat_at timestamptz",
+    "ALTER TABLE scraper.scrape_run ADD COLUMN IF NOT EXISTS last_progress text",
     """
     CREATE TABLE IF NOT EXISTS scraper.search_request (
         search_request_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

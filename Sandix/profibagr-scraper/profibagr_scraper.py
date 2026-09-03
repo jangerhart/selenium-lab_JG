@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+import signal
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -27,6 +28,8 @@ BASE_URL = "https://www.profibagr.cz"
 SEARCH_PATH = "/search"
 REQUEST_TIMEOUT_SECONDS = 15
 REQUEST_DELAY_SECONDS_DEFAULT = 3.0
+REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=15.0, write=10.0, pool=10.0)
+STALE_RUN_ABORT_MINUTES = 30
 DB_QUERY = """
 SELECT search_identifier
 FROM scraper.v_search_queue
@@ -264,6 +267,8 @@ def create_scrape_run(
                 competitor_id,
                 started_at,
                 status,
+                last_heartbeat_at,
+                last_progress,
                 queue_count,
                 search_success_count,
                 not_found_count,
@@ -273,17 +278,62 @@ def create_scrape_run(
                 raw_file_sha256,
                 scraper_version,
                 error_message
-            ) VALUES (%s, %s, %s, 'RUNNING', %s, 0, 0, 0, 0, %s, NULL, %s, NULL)
+            ) VALUES (%s, %s, %s, 'RUNNING', %s, %s, %s, 0, 0, 0, 0, %s, NULL, %s, NULL)
             """,
             (
                 run_id,
                 competitor_id,
                 started_at,
+                started_at,
+                "STARTED",
                 queue_count,
                 raw_file_path,
                 f"{source_database}::profibagr_scraper",
             ),
         )
+
+
+def mark_stale_scrape_runs(conn: psycopg.Connection, logger: logging.Logger) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.scrape_run
+            SET status = 'ABORTED',
+                finished_at = COALESCE(finished_at, now()),
+                error_message = COALESCE(error_message, 'Stale scrape run without heartbeat')
+            WHERE status = 'RUNNING'
+              AND COALESCE(last_heartbeat_at, started_at) < now() - (%s || ' minutes')::interval
+            RETURNING run_id
+            """,
+            (STALE_RUN_ABORT_MINUTES,),
+        )
+        aborted = cur.fetchall()
+    if aborted:
+        logger.error("ABORTED STALE RUNS: %s", ", ".join(str(row[0]) for row in aborted))
+    return len(aborted)
+
+
+def update_scrape_run_heartbeat(conn: psycopg.Connection, run_id: uuid.UUID, progress: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.scrape_run
+            SET last_heartbeat_at = now(),
+                last_progress = %s
+            WHERE run_id = %s
+            """,
+            (progress, run_id),
+        )
+
+
+def register_signal_handlers(logger: logging.Logger, finalize_callback):
+    def handler(signum, _frame):
+        logger.error("RECEIVED SIGNAL %s", signum)
+        finalize_callback("ABORTED", f"Received signal {signum}")
+        raise SystemExit(1)
+
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
 
 
 def create_search_request(
@@ -433,6 +483,7 @@ def finalize_scrape_run(
             UPDATE scraper.scrape_run
             SET finished_at = %s,
                 status = CASE WHEN %s = 0 THEN 'SUCCESS' WHEN %s > 0 AND %s > 0 THEN 'PARTIAL' ELSE 'FAILED' END,
+                last_heartbeat_at = now(),
                 search_success_count = %s,
                 not_found_count = %s,
                 error_count = %s,
@@ -806,6 +857,26 @@ def scrape_part_number(
     return FetchResult(status=overall_status, match_count=len(product_urls), rows=rows)
 
 
+def abort_scrape_run(
+    conn: psycopg.Connection,
+    run_id: uuid.UUID,
+    finished_at: datetime,
+    message: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.scrape_run
+            SET finished_at = %s,
+                status = 'ABORTED',
+                last_heartbeat_at = %s,
+                error_message = %s
+            WHERE run_id = %s
+            """,
+            (finished_at, finished_at, message, run_id),
+        )
+
+
 def write_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as csv_file:
@@ -867,6 +938,9 @@ def main() -> int:
     not_found_count = 0
     error_count = 0
     offer_count = 0
+    finalized = False
+    scrape_run_status = "RUNNING"
+    scrape_run_message = ""
 
     try:
         monitor_conn = connect_monitor_db()
@@ -878,6 +952,7 @@ def main() -> int:
 
     try:
         competitor_id = ensure_competitor_id(monitor_conn)
+        mark_stale_scrape_runs(monitor_conn, logger)
         create_scrape_run(
             monitor_conn,
             run_id=scrape_run_id,
@@ -887,8 +962,33 @@ def main() -> int:
             source_database=get_env_or_raise("POHODA_DB_NAME"),
             raw_file_path=str(csv_path),
         )
-        with httpx.Client(base_url=BASE_URL, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True) as client:
+
+        def finalize_run(status: str, message: str = "") -> None:
+            nonlocal finalized, scrape_run_status, scrape_run_message
+            if finalized:
+                return
+            scrape_run_status = status
+            scrape_run_message = message
+            if status == "ABORTED":
+                abort_scrape_run(monitor_conn, scrape_run_id, datetime.now(timezone.utc), message or "Aborted")
+            else:
+                finalize_scrape_run(
+                    monitor_conn,
+                    scrape_run_id,
+                    datetime.now(timezone.utc),
+                    search_success_count=search_success_count,
+                    not_found_count=not_found_count,
+                    error_count=error_count,
+                    offer_count=offer_count,
+                )
+            finalized = True
+
+        register_signal_handlers(logger, finalize_run)
+
+        with httpx.Client(base_url=BASE_URL, headers=headers, timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             for index, part_number in enumerate(part_numbers):
+                logger.info("PROGRESS %s/%s: %s", index + 1, len(part_numbers), part_number)
+                update_scrape_run_heartbeat(monitor_conn, scrape_run_id, f"SEARCHING {index + 1}/{len(part_numbers)} {part_number}")
                 search_request_id = None
                 try:
                     products = resolve_products_for_search_identifier(monitor_conn, part_number)
@@ -897,6 +997,7 @@ def main() -> int:
                     result = scrape_part_number(client, run_id, part_number, logger)
                     record_offer_observations(monitor_conn, search_request_id, result.rows)
                     finalize_search_request(monitor_conn, search_request_id, result, datetime.now(timezone.utc))
+                    update_scrape_run_heartbeat(monitor_conn, scrape_run_id, f"DONE {index + 1}/{len(part_numbers)} {part_number} {result.status}")
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.exception("MONITOR WRITE ERROR on %s", part_number)
                     if search_request_id is not None:
@@ -918,6 +1019,7 @@ def main() -> int:
                         except Exception:  # pylint: disable=broad-except
                             pass
                     error_count += 1
+                    update_scrape_run_heartbeat(monitor_conn, scrape_run_id, f"ERROR {index + 1}/{len(part_numbers)} {part_number}")
                     break
 
                 all_rows.extend(result.rows)
@@ -932,26 +1034,10 @@ def main() -> int:
                 if index < len(part_numbers) - 1:
                     time.sleep(request_delay_seconds)
 
-        finalize_scrape_run(
-            monitor_conn,
-            scrape_run_id,
-            datetime.now(timezone.utc),
-            search_success_count=search_success_count,
-            not_found_count=not_found_count,
-            error_count=error_count,
-            offer_count=offer_count,
-        )
+        finalize_run("SUCCESS" if error_count == 0 else "PARTIAL", scrape_run_message)
     except Exception as exc:  # pylint: disable=broad-except
         try:
-            finalize_scrape_run(
-                monitor_conn,
-                scrape_run_id,
-                datetime.now(timezone.utc),
-                search_success_count=search_success_count,
-                not_found_count=not_found_count,
-                error_count=error_count + 1,
-                offer_count=offer_count,
-            )
+            finalize_run("FAILED", str(exc))
         except Exception:  # pylint: disable=broad-except
             monitor_conn.rollback()
         logger.exception("DATABASE ERROR")
@@ -959,6 +1045,11 @@ def main() -> int:
         print(f"Database error: {exc}")
         return 1
     finally:
+        if not finalized:
+            try:
+                abort_scrape_run(monitor_conn, scrape_run_id, datetime.now(timezone.utc), scrape_run_message or "Process ended without clean finalization")
+            except Exception:  # pylint: disable=broad-except
+                monitor_conn.rollback()
         monitor_conn.close()
 
     write_csv(csv_path, all_rows)
