@@ -236,7 +236,7 @@ MONITOR_DDL = [
         product_id,
         ids AS source_identifier,
         btrim(upper(ids)) AS search_identifier,
-        regexp_replace(btrim(upper(ids)), '[\\s\\-/]', '', 'g') AS search_identifier_normalized,
+        regexp_replace(btrim(upper(ids)), '[\\s-]', '', 'g') AS search_identifier_normalized,
         'CURRENT_IDS'::text AS transformation_type
     FROM core.product_current_v
     WHERE ids IS NOT NULL AND btrim(ids) <> ''

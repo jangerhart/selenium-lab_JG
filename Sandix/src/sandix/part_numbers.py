@@ -38,6 +38,12 @@ def split_identifier_tokens(raw_value: str | None) -> list[str]:
     return [token for token in TOKEN_SPLIT_RE.split(raw_value.strip()) if token]
 
 
+def normalize_part_number_token(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^0-9A-Za-z/]+", "", value).upper()
+
+
 def strip_variant_suffixes(value: str | None, suffixes: Sequence[str]) -> tuple[str, tuple[str, ...]]:
     raw_value = (value or "").strip()
     matched_suffixes: list[str] = []
@@ -55,11 +61,22 @@ def strip_variant_suffixes(value: str | None, suffixes: Sequence[str]) -> tuple[
         raw_value = raw_value[: -len(matched)].rstrip()
         matched_suffixes.append(matched)
 
-    return normalize_variant_token(raw_value), tuple(matched_suffixes)
+    return normalize_part_number_token(raw_value), tuple(matched_suffixes)
+
+
+def dedupe_part_numbers_by_base(values: Sequence[str], suffixes: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        base_identifier, _ = strip_variant_suffixes(value, suffixes)
+        if base_identifier and base_identifier not in seen:
+            seen.add(base_identifier)
+            deduped.append(base_identifier)
+    return deduped
 
 
 def classify_source_identifier(raw_identifier: str, suffixes: Sequence[str]) -> IdentifierClassification:
-    normalized_identifier = normalize_variant_token(raw_identifier)
+    normalized_identifier = normalize_part_number_token(raw_identifier)
     normalized_base_identifier, matched_suffixes = strip_variant_suffixes(raw_identifier, suffixes)
     return IdentifierClassification(
         raw_identifier=raw_identifier,
@@ -92,7 +109,7 @@ def classify_competitor_observation(
     suffixes: Sequence[str],
 ) -> IdentifierClassification:
     raw_source = found_identifier or competitor_product_name or product_url or ""
-    normalized_identifier = normalize_variant_token(raw_source)
+    normalized_identifier = normalize_part_number_token(raw_source)
     normalized_base_identifier, matched_suffixes = strip_variant_suffixes(raw_source, suffixes)
 
     searchable_text = normalize_variant_token(" ".join([found_identifier or "", competitor_product_name or "", product_url or ""]))

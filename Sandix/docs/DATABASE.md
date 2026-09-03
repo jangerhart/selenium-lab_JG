@@ -146,6 +146,7 @@ Responsibilities:
 * pricing recommendations
 * Metabase datasets
 * editable suffix catalog for part-number variant classification
+* part-number normalization preserves `/` because it is semantically significant in Sandix identifiers
 
 The final schema of this database is intentionally deferred.
 
@@ -1589,6 +1590,7 @@ core.product_identifier
 and its management UI is backlog.
 
 The current working implementation keeps variant suffixes in `reporting.variant_suffix_catalog` and the ETL always processes them in descending length order, regardless of insertion order.
+The source part-number normalization used for searching keeps `/` intact and only strips whitespace and hyphen separators.
 
 The database model must remain compatible with adding this functionality later.
 

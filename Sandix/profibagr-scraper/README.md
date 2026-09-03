@@ -4,7 +4,7 @@ Profibagr scraper for price monitoring on `https://www.profibagr.cz/`.
 
 ## What it does
 
-- reads up to 500 search identifiers from PostgreSQL view `scraper.v_search_queue`
+- reads up to 500 search identifiers from PostgreSQL view `scraper.v_search_queue`, then collapses suffix variants to unique base PN before scraping
 - searches each part number on Profibagr
 - opens product detail pages and extracts key fields
 - writes output into CSV (`;` delimiter, UTF-8)

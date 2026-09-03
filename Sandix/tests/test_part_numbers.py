@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sandix.part_numbers import (  # noqa: E402
+    dedupe_part_numbers_by_base,
     classify_competitor_observation,
     classify_competitor_search_identifier,
     classify_source_identifier,
@@ -24,10 +25,18 @@ class PartNumberFilterTest(unittest.TestCase):
 
     def test_source_suffix_stripping(self) -> None:
         suffixes = ["seal-oem", "oem", "em", "a"]
-        self.assertEqual(strip_variant_suffixes("333/H8219seal-oem", suffixes), ("333H8219", ("seal-oem",)))
-        self.assertEqual(strip_variant_suffixes("320/A7120OEM", suffixes), ("320A7120", ("oem",)))
+        self.assertEqual(strip_variant_suffixes("333/H8219seal-oem", suffixes), ("333/H8219", ("seal-oem",)))
+        self.assertEqual(strip_variant_suffixes("320/A7120OEM", suffixes), ("320/A7120", ("oem",)))
+        self.assertEqual(strip_variant_suffixes("02/100073-C", ["c"]), ("02/100073", ("c",)))
         self.assertEqual(classify_source_identifier("320/A7120OEM", suffixes).variant_scope, "ALTERNATIVE")
         self.assertEqual(classify_source_identifier("320/A7120", suffixes).variant_scope, "ORIGINAL")
+
+    def test_dedupe_part_numbers_by_base(self) -> None:
+        suffixes = ["ab", "ad", "ah"]
+        self.assertEqual(
+            dedupe_part_numbers_by_base(["02/100284AB", "02/100284AD", "02/100284AH", "03/200001"], suffixes),
+            ["02/100284", "03/200001"],
+        )
 
     def test_split_suffix_cell(self) -> None:
         self.assertEqual(split_suffix_cell("p, p1"), ["p", "p1"])

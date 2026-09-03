@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-01
+Last updated: 2026-09-03
 
 ## Current objective
 
@@ -27,6 +27,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase now has a first Sandix dashboard in collection `Sandix` with ID `2`, localized to Czech titles/descriptions, and cards for KPI, search status, price comparison, overpriced and underpriced items.
 - Metabase now also has `Sandix - filtr part numberů` in collection `Sandix` with ID `3` for filter review, with cards `52` and `53`.
 - Metabase card `54` now shows the editable suffix catalog review table sorted by suffix length.
+- Card `52` is now named `Filtr part numberů - souhrn originálů a alternativ`.
+- Card `53` is now named `Filtr part numberů - alternativy a výjimky`.
 - Part-number suffix parsing now comes from `reporting.variant_suffix_catalog` (seeded from `rozliseni_alternativ.xlsx`), splits comma/semicolon-separated suffixes, and strips by descending suffix length.
 - Metabase dashboard `Sandix - Profibagr analytika` now also contains a second block of cards for the alternative-vs-alternative scope.
 - Metabase dashboard `Sandix - Profibagr analytika` is now set to `width=full` and the cards are stacked in a single full-width column to minimize horizontal scrolling.
@@ -135,8 +137,13 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Dual analytics ETL succeeded for the latest batch: `ORIGINAL` produced `7` matched products and `ALTERNATIVE` produced `0` matched products from the same scrape run.
 - Part-number filter ETL succeeded with `15,491` Sandix original tokens, `19,801` Sandix alternative tokens, `20` alternative Profibagr observations, and `8` unresolved competitor observations in the review snapshot.
 - Part-number filter ETL was regenerated after switching suffix parsing to Excel-first-column input.
-- Part-number suffix catalog currently contains `117` enabled suffixes and is sorted by length descending for ETL use.
+- Part-number filter ETL rerun after the manual suffix expansion produced `13,613` Sandix original tokens, `21,679` Sandix alternative tokens, `32` original Profibagr observations, `90` alternative Profibagr observations, and `8` unresolved competitor observations.
+- Part-number suffix catalog currently contains `166` enabled suffixes and is sorted by length descending for ETL use.
+- Part-number normalization now preserves `/` in both original and cleaned PN fields, and the POHODA search-identifier view uses the same rule.
+- Profibagr scraper now deduplicates queue items after suffix stripping, so entries like `02/100284AB`, `02/100284AD`, and `02/100284AH` collapse to one `02/100284`.
+- Latest Profibagr scrape run started with `INPUT COUNT: 447` after suffix-base dedupe and completed successfully.
 - Metabase dashboard `Sandix - filtr part numberů` now contains cards `52` and `53` for filter review.
+- Card `53` is now `Filtr part numberů - Sandix originál a očištěná PN` and shows only `SANDIX / SOURCE_TOKEN` rows from the POHODA ETL snapshot.
 - Metabase dashboard `Sandix - Profibagr analytika` now includes cards `47` to `51` for the alternative scope.
 - TOP overpriced products are now visible in `reporting.profibagr_latest_overpriced_v`; TOP underpriced products are in `reporting.profibagr_latest_underpriced_v`.
 - Metabase dashboard `Sandix Profibagr Analytics` now contains cards `42` to `46` and is ready for first review.

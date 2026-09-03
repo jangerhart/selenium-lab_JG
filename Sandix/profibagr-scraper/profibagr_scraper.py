@@ -19,6 +19,9 @@ import psycopg
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
+from sandix.alternatives import fetch_variant_suffixes  # noqa: E402
+from sandix.part_numbers import dedupe_part_numbers_by_base  # noqa: E402
+
 
 BASE_URL = "https://www.profibagr.cz"
 SEARCH_PATH = "/search"
@@ -65,7 +68,7 @@ def normalize_part_number(value: str | None) -> str:
 
 def normalize_part_number_loose(value: str | None) -> str:
     normalized = normalize_part_number(value)
-    return re.sub(r"[\s\-/]", "", normalized)
+    return re.sub(r"[\s-]", "", normalized)
 
 
 def setup_logging(run_id: str, logs_dir: Path) -> logging.Logger:
@@ -131,6 +134,20 @@ def connect_monitor_db() -> psycopg.Connection:
     return psycopg.connect(**conninfo, autocommit=True)
 
 
+def connect_analytics_db() -> psycopg.Connection:
+    conninfo = {
+        "host": os.getenv("PG_ANALYTICS_HOST") or get_env_or_raise("PG_PROVISION_HOST"),
+        "port": int(os.getenv("PG_ANALYTICS_PORT") or get_env_or_raise("PG_PROVISION_PORT")),
+        "dbname": os.getenv("PG_ANALYTICS_DB") or "sandix_price_analytics",
+        "user": os.getenv("PG_ANALYTICS_USER") or get_env_or_raise("PG_PROVISION_USER"),
+        "password": os.getenv("PG_ANALYTICS_PASSWORD") or get_env_or_raise("PG_PROVISION_PASSWORD"),
+    }
+    sslmode = os.getenv("PG_ANALYTICS_SSLMODE") or os.getenv("PG_PROVISION_SSLMODE")
+    if sslmode:
+        conninfo["sslmode"] = sslmode
+    return psycopg.connect(**conninfo, autocommit=True)
+
+
 def parse_price_decimal(raw_value: str | None) -> Decimal | None:
     if not raw_value:
         return None
@@ -173,17 +190,13 @@ def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
             cur.execute(DB_QUERY)
             rows = cur.fetchall()
 
+    with connect_analytics_db() as conn:
+        suffixes = fetch_variant_suffixes(conn)
+
     logger.info("DATABASE CONNECTED")
 
-    seen: set[str] = set()
-    unique_parts: list[str] = []
-    for row in rows:
-        value = normalize_part_number(str(row[0]))
-        if value and value not in seen:
-            seen.add(value)
-            unique_parts.append(value)
-
-    return unique_parts[:500]
+    queue_values = [normalize_part_number(str(row[0])) for row in rows]
+    return dedupe_part_numbers_by_base(queue_values, suffixes)[:500]
 
 
 def ensure_competitor_id(conn: psycopg.Connection) -> int:
