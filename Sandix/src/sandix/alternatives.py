@@ -220,6 +220,8 @@ VARIANT_ANALYTICS_DDL = [
         source_run_id uuid NOT NULL,
         comparison_scope text NOT NULL,
         product_id bigint NOT NULL,
+        sandix_part_number text,
+        profibagr_part_number text,
         source_identifier text,
         searched_identifier text NOT NULL,
         product_name text,
@@ -238,6 +240,14 @@ VARIANT_ANALYTICS_DDL = [
         generated_at timestamptz NOT NULL,
         PRIMARY KEY (source_run_id, comparison_scope, product_id)
     )
+    """,
+    """
+    ALTER TABLE reporting.profibagr_variant_price_comparison
+    ADD COLUMN IF NOT EXISTS sandix_part_number text
+    """,
+    """
+    ALTER TABLE reporting.profibagr_variant_price_comparison
+    ADD COLUMN IF NOT EXISTS profibagr_part_number text
     """,
     """
     CREATE TABLE IF NOT EXISTS reporting.profibagr_variant_search_status (
@@ -301,6 +311,18 @@ VARIANT_ANALYTICS_DDL = [
           WHERE comparison_scope = 'ALTERNATIVE'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
+      )
+    ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
+    """,
+    """
+    CREATE OR REPLACE VIEW reporting.profibagr_latest_price_comparison_sandix_alternative_v AS
+    SELECT *
+    FROM reporting.profibagr_variant_price_comparison
+    WHERE comparison_scope = 'SANDIX_ALTERNATIVE'
+      AND generated_at = (
+          SELECT MAX(generated_at)
+          FROM reporting.profibagr_variant_price_comparison
+          WHERE comparison_scope = 'SANDIX_ALTERNATIVE'
       )
     ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
     """,

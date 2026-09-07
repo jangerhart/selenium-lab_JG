@@ -34,7 +34,7 @@ DB_QUERY = """
 SELECT search_identifier
 FROM scraper.v_search_queue
 ORDER BY search_identifier_normalized, search_identifier
-LIMIT 500;
+LIMIT 5000;
 """
 
 CSV_HEADERS = [
@@ -199,7 +199,7 @@ def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
     logger.info("DATABASE CONNECTED")
 
     queue_values = [normalize_part_number(str(row[0])) for row in rows]
-    return dedupe_part_numbers_by_base(queue_values, suffixes)[:500]
+    return dedupe_part_numbers_by_base(queue_values, suffixes)[:5000]
 
 
 def ensure_competitor_id(conn: psycopg.Connection) -> int:

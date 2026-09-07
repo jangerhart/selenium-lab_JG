@@ -104,6 +104,27 @@ def fetch_known_identifiers(conn: psycopg.Connection) -> set[str]:
         return load_known_identifiers([row[0] for row in cur.fetchall()])
 
 
+def fetch_sandix_part_number_map(conn: psycopg.Connection, variant_scope: str | None = None) -> dict[int, str]:
+    with conn.cursor() as cur:
+        scope_clause = "" if variant_scope is None else "AND variant_scope = %s"
+        cur.execute(
+            f"""
+            SELECT DISTINCT ON (product_id)
+                product_id,
+                raw_part_number
+            FROM reporting.part_number_filter_latest_v
+            WHERE source_domain = 'SANDIX'
+              AND row_kind = 'SOURCE_TOKEN'
+              {scope_clause}
+            ORDER BY product_id,
+                     row_ordinal ASC,
+                     raw_part_number ASC
+            """,
+            () if variant_scope is None else (variant_scope,)
+        )
+        return {int(product_id): str(raw_part_number) for product_id, raw_part_number in cur.fetchall()}
+
+
 def fetch_raw_offer_rows(conn: psycopg.Connection, source_run_id: uuid.UUID) -> list[dict[str, object]]:
     with conn.cursor() as cur:
         cur.execute(
@@ -232,6 +253,8 @@ def build_scope_price_rows(rows: list[dict[str, object]], comparison_scope: str)
             {
                 "comparison_scope": comparison_scope,
                 "product_id": product_id,
+                "sandix_part_number": best_row["sandix_part_number"],
+                "profibagr_part_number": best_row["found_identifier"],
                 "source_identifier": best_row["source_identifier"],
                 "searched_identifier": best_row["searched_identifier"],
                 "product_name": best_row["product_name"],
@@ -384,6 +407,8 @@ def write_variant_snapshot(
                 source_run_id,
                 comparison_scope,
                 product_id,
+                sandix_part_number,
+                profibagr_part_number,
                 source_identifier,
                 searched_identifier,
                 product_name,
@@ -401,7 +426,7 @@ def write_variant_snapshot(
                 search_request_count,
                 generated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             [
@@ -409,6 +434,8 @@ def write_variant_snapshot(
                     source_run_id,
                     row["comparison_scope"],
                     row["product_id"],
+                    row["sandix_part_number"],
+                    row["profibagr_part_number"],
                     row["source_identifier"],
                     row["searched_identifier"],
                     row["product_name"],
@@ -469,7 +496,7 @@ def print_scope_preview(batch_rows: list[dict[str, object]], comparison_rows_by_
         )
         for row in comparison_rows[:5]:
             print(
-                f"  - {row['searched_identifier']}: Sandix {row['sandix_price_gross']} vs Profibagr {row['profibagr_price_gross']} => gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
+                f"  - Sandix {row['sandix_part_number']} vs Profibagr {row['profibagr_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
             )
 
 
@@ -536,6 +563,7 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
                     cp.selling_price_net AS sandix_price_net,
                     cp.selling_price_gross AS sandix_price_gross,
                     oo.observation_id,
+                    oo.found_identifier,
                     oo.price_without_vat,
                     oo.price_with_vat,
                     oo.product_url
@@ -550,6 +578,7 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
                     product_id,
                     source_identifier,
                     searched_identifier,
+                    found_identifier,
                     product_name,
                     sandix_price_net,
                     sandix_price_gross,
@@ -572,6 +601,8 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
             )
             SELECT
                 c.product_id,
+                b.source_identifier AS sandix_part_number,
+                b.found_identifier AS profibagr_part_number,
                 b.source_identifier,
                 b.searched_identifier,
                 b.product_name,
@@ -593,6 +624,10 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
         )
         columns = [desc.name for desc in cur.description]
         rows = [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    sandix_part_numbers = fetch_sandix_part_number_map(conn)
+    for row in rows:
+        row["sandix_part_number"] = sandix_part_numbers.get(int(row["product_id"]), row["source_identifier"])
 
     for row in rows:
         row["price_gap_net"] = price_gap(row["sandix_price_net"], row["profibagr_price_net"])
@@ -727,6 +762,8 @@ def write_snapshot(
             INSERT INTO reporting.profibagr_price_comparison (
                 source_run_id,
                 product_id,
+                sandix_part_number,
+                profibagr_part_number,
                 source_identifier,
                 searched_identifier,
                 product_name,
@@ -744,13 +781,15 @@ def write_snapshot(
                 search_request_count,
                 generated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             [
                 (
                     source_run["run_id"],
                     row["product_id"],
+                    row["sandix_part_number"],
+                    row["profibagr_part_number"],
                     row["source_identifier"],
                     row["searched_identifier"],
                     row["product_name"],
@@ -807,7 +846,7 @@ def print_preview(source_run: dict[str, object], batch_kpi: dict[str, object], c
     print("Top price gaps:")
     for row in comparison_rows[:10]:
         print(
-            f"- {row['searched_identifier']}: Sandix {row['sandix_price_gross']} vs Profibagr {row['profibagr_price_gross']} => gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
+            f"- Sandix {row['sandix_part_number']} vs Profibagr {row['profibagr_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
         )
 
 
@@ -823,6 +862,8 @@ def main() -> int:
             source_run = fetch_latest_run(monitor_conn)
             suffixes = load_alternative_suffixes(ROOT / "rozliseni_alternativ.xlsx")
             known_identifiers = fetch_known_identifiers(monitor_conn)
+            sandix_part_numbers = fetch_sandix_part_number_map(analytics_conn)
+            sandix_alternative_part_numbers = fetch_sandix_part_number_map(analytics_conn, "ALTERNATIVE")
             raw_rows = fetch_raw_offer_rows(monitor_conn, source_run["run_id"])
             status_map = fetch_search_status_map(monitor_conn, source_run["run_id"])
             scoped_rows, mismatch_count = classify_offer_rows(raw_rows, known_identifiers, suffixes)
@@ -833,6 +874,8 @@ def main() -> int:
 
             for scope in ("ORIGINAL", "ALTERNATIVE"):
                 scope_rows = scoped_rows[scope]
+                for row in scope_rows:
+                    row["sandix_part_number"] = sandix_part_numbers.get(int(row["product_id"]), row["source_identifier"])
                 request_ids = {int(row["search_request_id"]) for row in scope_rows}
                 comparison_rows = build_scope_price_rows(scope_rows, scope)
                 search_status_rows = build_scope_search_status_rows(request_ids, status_map, scope)
@@ -850,6 +893,17 @@ def main() -> int:
                 comparison_rows_by_scope[scope] = comparison_rows
                 search_status_rows_by_scope[scope] = search_status_rows
 
+            sandix_alternative_scope_rows: list[dict[str, object]] = []
+            for row in scoped_rows["ALTERNATIVE"]:
+                sandix_alternative_part_number = sandix_alternative_part_numbers.get(int(row["product_id"]))
+                if sandix_alternative_part_number is None:
+                    continue
+                scoped_row = dict(row)
+                scoped_row["sandix_part_number"] = sandix_alternative_part_number
+                sandix_alternative_scope_rows.append(scoped_row)
+
+            sandix_alternative_comparison_rows = build_scope_price_rows(sandix_alternative_scope_rows, "SANDIX_ALTERNATIVE")
+
             with analytics_conn.transaction():
                 write_snapshot(
                     analytics_conn,
@@ -861,7 +915,7 @@ def main() -> int:
                 write_variant_snapshot(
                     analytics_conn,
                     batch_rows,
-                    comparison_rows_by_scope["ORIGINAL"] + comparison_rows_by_scope["ALTERNATIVE"],
+                    comparison_rows_by_scope["ORIGINAL"] + comparison_rows_by_scope["ALTERNATIVE"] + sandix_alternative_comparison_rows,
                     search_status_rows_by_scope["ORIGINAL"] + search_status_rows_by_scope["ALTERNATIVE"],
                 )
 

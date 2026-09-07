@@ -100,6 +100,8 @@ ANALYTICS_DDL = [
     CREATE TABLE IF NOT EXISTS reporting.profibagr_price_comparison (
         source_run_id uuid NOT NULL,
         product_id bigint NOT NULL,
+        sandix_part_number text,
+        profibagr_part_number text,
         source_identifier text,
         searched_identifier text NOT NULL,
         product_name text,
@@ -122,6 +124,14 @@ ANALYTICS_DDL = [
     """
     ALTER TABLE reporting.profibagr_price_comparison
     ADD COLUMN IF NOT EXISTS profibagr_product_url text
+    """,
+    """
+    ALTER TABLE reporting.profibagr_price_comparison
+    ADD COLUMN IF NOT EXISTS sandix_part_number text
+    """,
+    """
+    ALTER TABLE reporting.profibagr_price_comparison
+    ADD COLUMN IF NOT EXISTS profibagr_part_number text
     """,
     """
     CREATE TABLE IF NOT EXISTS reporting.profibagr_search_status (
@@ -184,7 +194,9 @@ ANALYTICS_DDL = [
         invalid_offer_count,
         search_request_count,
         generated_at,
-        profibagr_product_url
+        profibagr_product_url,
+        sandix_part_number,
+        profibagr_part_number
     FROM reporting.profibagr_price_comparison
     WHERE source_run_id = (
         SELECT source_run_id

@@ -196,4 +196,80 @@ FILTER_REVIEW_DDL = [
     GROUP BY 1, 2, 3, 4
     ORDER BY source_domain, row_kind, variant_scope, classification_reason
     """,
+    """
+    CREATE OR REPLACE VIEW reporting.part_number_filter_latest_coverage_v AS
+    WITH sandix_alternatives AS (
+        SELECT
+            normalized_base_part_number,
+            MIN(raw_part_number) AS sandix_alternativni_identifikator,
+            MIN(product_name) AS sandix_product_name,
+            COUNT(DISTINCT product_id)::int AS sandix_product_count
+        FROM reporting.part_number_filter_latest_v
+        WHERE source_domain = 'SANDIX'
+          AND row_kind = 'SOURCE_TOKEN'
+          AND variant_scope = 'ALTERNATIVE'
+        GROUP BY normalized_base_part_number
+    ),
+    profibagr_requests AS (
+        SELECT
+            normalized_base_part_number,
+            COUNT(DISTINCT search_request_id)::int AS profibagr_request_count,
+            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS profibagr_original_request_count,
+            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS profibagr_alternative_request_count
+        FROM reporting.part_number_filter_latest_v
+        WHERE source_domain = 'PROFIBAGR'
+          AND row_kind = 'SEARCH_REQUEST'
+        GROUP BY normalized_base_part_number
+    ),
+    profibagr_observations AS (
+        SELECT
+            normalized_base_part_number,
+            COUNT(DISTINCT observation_id)::int AS profibagr_observation_count,
+            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS profibagr_original_observation_count,
+            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS profibagr_alternative_observation_count
+        FROM reporting.part_number_filter_latest_v
+        WHERE source_domain = 'PROFIBAGR'
+          AND row_kind = 'OFFER_OBSERVATION'
+        GROUP BY normalized_base_part_number
+    )
+    SELECT
+        s.normalized_base_part_number AS sandix_vyhledavaci_identifikator,
+        s.sandix_alternativni_identifikator,
+        s.sandix_product_name,
+        s.sandix_product_count,
+        COALESCE(r.profibagr_request_count, 0) AS profibagr_request_count,
+        COALESCE(r.profibagr_original_request_count, 0) AS profibagr_original_request_count,
+        COALESCE(r.profibagr_alternative_request_count, 0) AS profibagr_alternative_request_count,
+        COALESCE(o.profibagr_observation_count, 0) AS profibagr_observation_count,
+        COALESCE(o.profibagr_original_observation_count, 0) AS profibagr_original_observation_count,
+        COALESCE(o.profibagr_alternative_observation_count, 0) AS profibagr_alternative_observation_count,
+        CASE
+            WHEN r.profibagr_request_count IS NULL THEN 'NOT_SEARCHED'
+            WHEN COALESCE(o.profibagr_observation_count, 0) = 0 THEN 'NOT_FOUND'
+            WHEN COALESCE(o.profibagr_alternative_observation_count, 0) > 0 AND COALESCE(o.profibagr_original_observation_count, 0) > 0 THEN 'FOUND_BOTH'
+            WHEN COALESCE(o.profibagr_alternative_observation_count, 0) > 0 THEN 'FOUND_ALTERNATIVE'
+            WHEN COALESCE(o.profibagr_original_observation_count, 0) > 0 THEN 'FOUND_ORIGINAL_ONLY'
+            ELSE 'NOT_FOUND'
+        END AS search_coverage_status
+    FROM sandix_alternatives s
+    LEFT JOIN profibagr_requests r USING (normalized_base_part_number)
+    LEFT JOIN profibagr_observations o USING (normalized_base_part_number)
+    ORDER BY s.normalized_base_part_number, s.sandix_alternativni_identifikator
+    """,
+    """
+    CREATE OR REPLACE VIEW reporting.part_number_filter_latest_coverage_summary_v AS
+    SELECT
+        search_coverage_status,
+        COUNT(*)::int AS row_count
+    FROM reporting.part_number_filter_latest_coverage_v
+    GROUP BY 1
+    ORDER BY CASE search_coverage_status
+        WHEN 'NOT_SEARCHED' THEN 1
+        WHEN 'NOT_FOUND' THEN 2
+        WHEN 'FOUND_ORIGINAL_ONLY' THEN 3
+        WHEN 'FOUND_ALTERNATIVE' THEN 4
+        WHEN 'FOUND_BOTH' THEN 5
+        ELSE 6
+    END
+    """,
 ]

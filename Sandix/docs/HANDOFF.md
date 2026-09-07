@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 ## Current objective
 
@@ -31,6 +31,9 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Card `53` is now named `Filtr part numberů - alternativy a výjimky`.
 - Part-number suffix parsing now comes from `reporting.variant_suffix_catalog` (seeded from `rozliseni_alternativ.xlsx`), splits comma/semicolon-separated suffixes, and strips by descending suffix length.
 - Metabase dashboard `Sandix - Profibagr analytika` now also contains a second block of cards for the alternative-vs-alternative scope.
+- Profibagr scrape queue now uses base PN again for search input; suffix variants are preserved only for display and classification.
+- New analytics view `reporting.part_number_filter_latest_coverage_v` tracks `NOT_SEARCHED`, `NOT_FOUND`, `FOUND_ORIGINAL_ONLY`, `FOUND_ALTERNATIVE`, and `FOUND_BOTH` for Sandix alternative PN.
+- Metabase now has card `57` for Sandix alternative coverage and card `56` for Sandix ALTERNATIVE vs Profibagr ALTERNATIVE comparison.
 - Metabase dashboard `Sandix - Profibagr analytika` is now set to `width=full` and the cards are stacked in a single full-width column to minimize horizontal scrolling.
 - Metabase dashboard `Sandix - Profibagr analytika` was briefly broken by invalid SQL aliases, then repaired by quoting the `%` aliases and fixing the search-status sort expression.
 - Metabase card `43` was simplified to two columns (`stav_hledani`, `pocet_dotazu`) so the bar chart no longer asks for X/Y axes.
@@ -42,6 +45,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Production POHODA import now contains 25,436 rows in `source_pohoda.stock_current` and `core.product`.
 - Current eligibility queue in `scraper.v_search_queue` contains 1,412 search identifiers.
 - Profibagr full batch against the production queue completed successfully with 500 search identifiers processed.
+- Latest base-PN Profibagr scrape run completed successfully with `1,252` queued identifiers before the queue was reverted to base identifiers.
 - First usable analytics snapshot tables and latest views now exist in `sandix_price_analytics.reporting`.
 
 ## Files changed
@@ -56,6 +60,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/analytics-etl/.gitignore`
 - `Sandix/analytics-etl/README.md`
 - `Sandix/analytics-etl/analytics_etl.py`
+- `Sandix/analytics-etl/part_number_filter_etl.py`
 - `Sandix/analytics-etl/requirements.txt`
 - `Sandix/pohoda-etl/.env.example`
 - `Sandix/pohoda-etl/.gitignore`
@@ -132,6 +137,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `sandix_price_analytics.reporting.profibagr_price_comparison` has 15 rows for the latest successful batch.
 - `sandix_price_analytics.reporting.profibagr_search_status` has 3 rows (`OK`, `NOT_FOUND`, `ERROR`).
 - Latest batch summary: `100` searched, `17 OK`, `83 NOT_FOUND`, `0 ERROR`, `30` raw offers, `25` valid offers, `5` excluded invalid offers, `15` matched products.
+- Latest base-PN batch summary: `86` searched, `86 OK`, `0 NOT_FOUND`, `0 ERROR`, `211` raw offers, `198` valid offers, `12` excluded invalid offers, `85` matched products.
 - No invalid competitor price (`<= 0`) is used in the latest comparison view.
 - The repeated analytics run stayed idempotent: snapshot counts remained `1 / 15 / 3`.
 - Dual analytics ETL succeeded for the latest batch: `ORIGINAL` produced `7` matched products and `ALTERNATIVE` produced `0` matched products from the same scrape run.
@@ -153,6 +159,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase dashboard `Sandix - Profibagr analytika` now includes cards `47` to `51` for the alternative scope.
 - TOP overpriced products are now visible in `reporting.profibagr_latest_overpriced_v`; TOP underpriced products are in `reporting.profibagr_latest_underpriced_v`.
 - Metabase dashboard `Sandix Profibagr Analytics` now contains cards `42` to `46` and is ready for first review.
+- Metabase dashboard `Sandix - Profibagr analytika` now also contains cards `56` and `57` for Sandix alternative comparison and alternative coverage.
 - Metabase dashboard is now named `Sandix - Profibagr analytika` and the question titles/descriptions are in Czech.
 - Dashboard layout is now full-width with a single vertical stack of full-width cards.
 - All five Metabase cards now execute successfully again and the dashboard is usable.
@@ -173,6 +180,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Continue with any database-schema implementation work from `Sandix/docs/DATABASE.md`.
 - Keep shared business principles in `Sandix/docs/PROJECT_CONTEXT.md` and DB-specific decisions in `Sandix/docs/DATABASE.md`.
 - Keep checking for overlap, but prefer moving general context out of `Sandix/docs/DATABASE.md`.
+- The new coverage view is the preferred place to answer whether a Sandix alternative PN was searched, missed, or matched as original/alternative in Profibagr.
 - Next step: create the first Metabase dashboard / questions directly on `reporting.profibagr_latest_batch_v`, `reporting.profibagr_latest_price_comparison_v`, and `reporting.profibagr_latest_search_status_v`.
 - Next step: review the Metabase dashboard and decide whether to keep the current layout or add a date/status filter.
 - Next step: decide when to retire the legacy PoC analytics tables once the new views are accepted.
