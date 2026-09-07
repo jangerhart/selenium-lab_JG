@@ -15,6 +15,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+SCRAPER_PYTHON = ROOT / ".venv_scraper" / "bin" / "python"
+if "SANDIX_SCRAPER_REEXEC" not in os.environ:
+    try:
+        import httpx  # noqa: F401
+    except ModuleNotFoundError:
+        if SCRAPER_PYTHON.exists():
+            os.environ["SANDIX_SCRAPER_REEXEC"] = "1"
+            os.execv(str(SCRAPER_PYTHON), [str(SCRAPER_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]])
+        raise RuntimeError(
+            "Missing Python dependencies. Activate the scraper venv or create .venv_scraper before running this script."
+        )
+
 import httpx
 import psycopg
 from bs4 import BeautifulSoup

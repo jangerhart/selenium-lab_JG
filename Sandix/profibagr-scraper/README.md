@@ -38,6 +38,8 @@ Batch run from DB:
 python3 profibagr_scraper.py
 ```
 
+If the current interpreter does not have the dependencies installed, the script auto-reexecs into `.venv_scraper/bin/python` when that venv exists.
+
 Full Sandix scope:
 
 ```bash
