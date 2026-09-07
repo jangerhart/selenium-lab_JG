@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 ## Current objective
 
@@ -32,6 +32,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Part-number suffix parsing now comes from `reporting.variant_suffix_catalog` (seeded from `rozliseni_alternativ.xlsx`), splits comma/semicolon-separated suffixes, and strips by descending suffix length.
 - Metabase dashboard `Sandix - Profibagr analytika` now also contains a second block of cards for the alternative-vs-alternative scope.
 - Profibagr scrape queue now uses base PN again for search input; suffix variants are preserved only for display and classification.
+- Profibagr scraper now supports `--scope full`, which reads all Sandix current identifiers from `core.product_search_identifier_v` instead of the filtered queue.
 - New analytics view `reporting.part_number_filter_latest_coverage_v` tracks `NOT_SEARCHED`, `NOT_FOUND`, `FOUND_ORIGINAL_ONLY`, `FOUND_ALTERNATIVE`, and `FOUND_BOTH` for Sandix alternative PN.
 - Metabase now has card `57` for Sandix alternative coverage and card `56` for Sandix ALTERNATIVE vs Profibagr ALTERNATIVE comparison.
 - Metabase dashboard `Sandix - Profibagr analytika` is now set to `width=full` and the cards are stacked in a single full-width column to minimize horizontal scrolling.
@@ -46,6 +47,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Current eligibility queue in `scraper.v_search_queue` contains 1,412 search identifiers.
 - Profibagr full batch against the production queue completed successfully with 500 search identifiers processed.
 - Latest base-PN Profibagr scrape run completed successfully with `1,252` queued identifiers before the queue was reverted to base identifiers.
+- Full-scope source currently resolves to `25,429` current Sandix product rows and about `10,302` unique base search identifiers after suffix-base collapse.
 - First usable analytics snapshot tables and latest views now exist in `sandix_price_analytics.reporting`.
 
 ## Files changed

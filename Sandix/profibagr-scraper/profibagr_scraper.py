@@ -37,6 +37,14 @@ ORDER BY search_identifier_normalized, search_identifier
 LIMIT 5000;
 """
 
+FULL_SCOPE_DB_QUERY = """
+SELECT search_identifier
+FROM core.product_search_identifier_v
+WHERE source_identifier IS NOT NULL
+  AND btrim(source_identifier) <> ''
+ORDER BY search_identifier_normalized, search_identifier
+"""
+
 CSV_HEADERS = [
     "run_id",
     "scraped_at",
@@ -187,19 +195,23 @@ def parse_upgates_json(html: str) -> dict[str, Any] | None:
         return None
 
 
-def fetch_part_numbers_from_db(logger: logging.Logger) -> list[str]:
+def fetch_part_numbers_from_db(logger: logging.Logger, scope: str) -> list[str]:
     with connect_monitor_db() as conn:
         with conn.cursor() as cur:
-            cur.execute(DB_QUERY)
+            if scope == "full":
+                cur.execute(FULL_SCOPE_DB_QUERY)
+            else:
+                cur.execute(DB_QUERY)
             rows = cur.fetchall()
 
     with connect_analytics_db() as conn:
         suffixes = fetch_variant_suffixes(conn)
 
-    logger.info("DATABASE CONNECTED")
+    logger.info("DATABASE CONNECTED (%s scope)", scope)
 
     queue_values = [normalize_part_number(str(row[0])) for row in rows]
-    return dedupe_part_numbers_by_base(queue_values, suffixes)[:5000]
+    deduped = dedupe_part_numbers_by_base(queue_values, suffixes)
+    return deduped if scope == "full" else deduped[:5000]
 
 
 def ensure_competitor_id(conn: psycopg.Connection) -> int:
@@ -888,6 +900,12 @@ def write_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Profibagr scraper PoC")
     parser.add_argument(
+        "--scope",
+        choices=("queue", "full"),
+        default="queue",
+        help="Queue source: filtered scrape queue or full Sandix scope.",
+    )
+    parser.add_argument(
         "--part-number",
         action="append",
         dest="part_numbers",
@@ -914,7 +932,7 @@ def main() -> int:
         part_numbers = [normalize_part_number(value) for value in args.part_numbers if value]
     else:
         try:
-            part_numbers = fetch_part_numbers_from_db(logger)
+            part_numbers = fetch_part_numbers_from_db(logger, args.scope)
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("DATABASE ERROR")
             logger.error("END")
