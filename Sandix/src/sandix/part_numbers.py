@@ -210,60 +210,65 @@ FILTER_REVIEW_DDL = [
           AND variant_scope = 'ALTERNATIVE'
         GROUP BY normalized_base_part_number
     ),
-    profibagr_requests AS (
+    competitor_requests AS (
         SELECT
+            source_domain,
             normalized_base_part_number,
-            COUNT(DISTINCT search_request_id)::int AS profibagr_request_count,
-            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS profibagr_original_request_count,
-            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS profibagr_alternative_request_count
+            COUNT(DISTINCT search_request_id)::int AS competitor_request_count,
+            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS competitor_original_request_count,
+            COUNT(DISTINCT search_request_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS competitor_alternative_request_count
         FROM reporting.part_number_filter_latest_v
-        WHERE source_domain = 'PROFIBAGR'
-          AND row_kind = 'SEARCH_REQUEST'
-        GROUP BY normalized_base_part_number
+        WHERE row_kind = 'SEARCH_REQUEST'
+        GROUP BY source_domain, normalized_base_part_number
     ),
-    profibagr_observations AS (
+    competitor_observations AS (
         SELECT
+            source_domain,
             normalized_base_part_number,
-            COUNT(DISTINCT observation_id)::int AS profibagr_observation_count,
-            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS profibagr_original_observation_count,
-            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS profibagr_alternative_observation_count
+            COUNT(DISTINCT observation_id)::int AS competitor_observation_count,
+            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ORIGINAL')::int AS competitor_original_observation_count,
+            COUNT(DISTINCT observation_id) FILTER (WHERE variant_scope = 'ALTERNATIVE')::int AS competitor_alternative_observation_count
         FROM reporting.part_number_filter_latest_v
-        WHERE source_domain = 'PROFIBAGR'
-          AND row_kind = 'OFFER_OBSERVATION'
-        GROUP BY normalized_base_part_number
+        WHERE row_kind = 'OFFER_OBSERVATION'
+        GROUP BY source_domain, normalized_base_part_number
     )
     SELECT
+        COALESCE(r.source_domain, o.source_domain) AS source_domain,
         s.normalized_base_part_number AS sandix_vyhledavaci_identifikator,
         s.sandix_alternativni_identifikator,
         s.sandix_product_name,
         s.sandix_product_count,
-        COALESCE(r.profibagr_request_count, 0) AS profibagr_request_count,
-        COALESCE(r.profibagr_original_request_count, 0) AS profibagr_original_request_count,
-        COALESCE(r.profibagr_alternative_request_count, 0) AS profibagr_alternative_request_count,
-        COALESCE(o.profibagr_observation_count, 0) AS profibagr_observation_count,
-        COALESCE(o.profibagr_original_observation_count, 0) AS profibagr_original_observation_count,
-        COALESCE(o.profibagr_alternative_observation_count, 0) AS profibagr_alternative_observation_count,
+        COALESCE(r.competitor_request_count, 0) AS competitor_request_count,
+        COALESCE(r.competitor_original_request_count, 0) AS competitor_original_request_count,
+        COALESCE(r.competitor_alternative_request_count, 0) AS competitor_alternative_request_count,
+        COALESCE(o.competitor_observation_count, 0) AS competitor_observation_count,
+        COALESCE(o.competitor_original_observation_count, 0) AS competitor_original_observation_count,
+        COALESCE(o.competitor_alternative_observation_count, 0) AS competitor_alternative_observation_count,
         CASE
-            WHEN r.profibagr_request_count IS NULL THEN 'NOT_SEARCHED'
-            WHEN COALESCE(o.profibagr_observation_count, 0) = 0 THEN 'NOT_FOUND'
-            WHEN COALESCE(o.profibagr_alternative_observation_count, 0) > 0 AND COALESCE(o.profibagr_original_observation_count, 0) > 0 THEN 'FOUND_BOTH'
-            WHEN COALESCE(o.profibagr_alternative_observation_count, 0) > 0 THEN 'FOUND_ALTERNATIVE'
-            WHEN COALESCE(o.profibagr_original_observation_count, 0) > 0 THEN 'FOUND_ORIGINAL_ONLY'
+            WHEN r.competitor_request_count IS NULL THEN 'NOT_SEARCHED'
+            WHEN COALESCE(o.competitor_observation_count, 0) = 0 THEN 'NOT_FOUND'
+            WHEN COALESCE(o.competitor_alternative_observation_count, 0) > 0 AND COALESCE(o.competitor_original_observation_count, 0) > 0 THEN 'FOUND_BOTH'
+            WHEN COALESCE(o.competitor_alternative_observation_count, 0) > 0 THEN 'FOUND_ALTERNATIVE'
+            WHEN COALESCE(o.competitor_original_observation_count, 0) > 0 THEN 'FOUND_ORIGINAL_ONLY'
             ELSE 'NOT_FOUND'
         END AS search_coverage_status
     FROM sandix_alternatives s
-    LEFT JOIN profibagr_requests r USING (normalized_base_part_number)
-    LEFT JOIN profibagr_observations o USING (normalized_base_part_number)
-    ORDER BY s.normalized_base_part_number, s.sandix_alternativni_identifikator
+    LEFT JOIN competitor_requests r
+      ON r.normalized_base_part_number = s.normalized_base_part_number
+    LEFT JOIN competitor_observations o
+      ON o.normalized_base_part_number = s.normalized_base_part_number
+     AND o.source_domain = r.source_domain
+    ORDER BY COALESCE(r.source_domain, o.source_domain), s.normalized_base_part_number, s.sandix_alternativni_identifikator
     """,
     """
     CREATE OR REPLACE VIEW reporting.part_number_filter_latest_coverage_summary_v AS
     SELECT
+        source_domain,
         search_coverage_status,
         COUNT(*)::int AS row_count
     FROM reporting.part_number_filter_latest_coverage_v
-    GROUP BY 1
-    ORDER BY CASE search_coverage_status
+    GROUP BY source_domain, search_coverage_status
+    ORDER BY source_domain, CASE search_coverage_status
         WHEN 'NOT_SEARCHED' THEN 1
         WHEN 'NOT_FOUND' THEN 2
         WHEN 'FOUND_ORIGINAL_ONLY' THEN 3

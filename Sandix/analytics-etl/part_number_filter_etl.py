@@ -22,6 +22,7 @@ from sandix.part_numbers import (  # noqa: E402
     classify_source_identifier,
     split_identifier_tokens,
 )
+from sandix.analytics import DEFAULT_COMPETITOR_CODE, DEFAULT_COMPETITOR_NAME  # noqa: E402
 from sandix.alternatives import (  # noqa: E402
     VARIANT_SUFFIX_CATALOG_DDL,
     fetch_variant_suffixes,
@@ -84,20 +85,22 @@ def fetch_source_rows(conn: psycopg.Connection) -> list[dict[str, object]]:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
-def fetch_latest_successful_scrape_run(conn: psycopg.Connection) -> dict[str, object]:
+def fetch_latest_successful_scrape_run(conn: psycopg.Connection, competitor_code: str) -> dict[str, object]:
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT run_id, competitor_code, competitor_name, started_at, finished_at
             FROM export.scrape_run_v
             WHERE status = 'SUCCESS'
+              AND competitor_code = %s
             ORDER BY started_at DESC
             LIMIT 1
-            """
+            """,
+            (competitor_code,),
         )
         row = cur.fetchone()
         if row is None:
-            raise RuntimeError("No successful Profibagr scrape run found")
+            raise RuntimeError(f"No successful scrape run found for competitor {competitor_code}")
         columns = [desc.name for desc in cur.description]
     return dict(zip(columns, row))
 
@@ -201,13 +204,19 @@ def build_source_rows(rows: list[dict[str, object]], suffixes: list[str], genera
     return review_rows
 
 
-def build_request_rows(rows: list[dict[str, object]], suffixes: list[str], scrape_run_id: uuid.UUID, generated_at: datetime) -> list[dict[str, object]]:
+def build_request_rows(
+    rows: list[dict[str, object]],
+    suffixes: list[str],
+    scrape_run_id: uuid.UUID,
+    generated_at: datetime,
+    source_domain: str,
+) -> list[dict[str, object]]:
     review_rows: list[dict[str, object]] = []
     for ordinal, row in enumerate(rows, start=1):
         classification = classify_competitor_search_identifier(row["searched_identifier"], suffixes)
         review_rows.append(
             {
-                "source_domain": "PROFIBAGR",
+                "source_domain": source_domain,
                 "row_kind": "SEARCH_REQUEST",
                 "source_sync_run_id": None,
                 "scrape_run_id": scrape_run_id,
@@ -236,7 +245,13 @@ def build_request_rows(rows: list[dict[str, object]], suffixes: list[str], scrap
     return review_rows
 
 
-def build_observation_rows(rows: list[dict[str, object]], suffixes: list[str], scrape_run_id: uuid.UUID, generated_at: datetime) -> list[dict[str, object]]:
+def build_observation_rows(
+    rows: list[dict[str, object]],
+    suffixes: list[str],
+    scrape_run_id: uuid.UUID,
+    generated_at: datetime,
+    source_domain: str,
+) -> list[dict[str, object]]:
     review_rows: list[dict[str, object]] = []
     for ordinal, row in enumerate(rows, start=1):
         classification = classify_competitor_observation(
@@ -248,7 +263,7 @@ def build_observation_rows(rows: list[dict[str, object]], suffixes: list[str], s
         )
         review_rows.append(
             {
-                "source_domain": "PROFIBAGR",
+                "source_domain": source_domain,
                 "row_kind": "OFFER_OBSERVATION",
                 "source_sync_run_id": None,
                 "scrape_run_id": scrape_run_id,
@@ -346,22 +361,22 @@ def write_snapshot(conn: psycopg.Connection, rows: list[dict[str, object]], sour
         )
 
 
-def print_preview(rows: list[dict[str, object]]) -> None:
+def print_preview(rows: list[dict[str, object]], source_domain: str) -> None:
     sandix_original = sum(1 for row in rows if row["source_domain"] == "SANDIX" and row["variant_scope"] == "ORIGINAL")
     sandix_alternative = sum(1 for row in rows if row["source_domain"] == "SANDIX" and row["variant_scope"] == "ALTERNATIVE")
-    profibagr_original = sum(
+    competitor_original = sum(
         1
         for row in rows
-        if row["source_domain"] == "PROFIBAGR" and row["row_kind"] == "OFFER_OBSERVATION" and row["variant_scope"] == "ORIGINAL"
+        if row["source_domain"] == source_domain and row["row_kind"] == "OFFER_OBSERVATION" and row["variant_scope"] == "ORIGINAL"
     )
-    profibagr_alternative = sum(
+    competitor_alternative = sum(
         1
         for row in rows
-        if row["source_domain"] == "PROFIBAGR" and row["row_kind"] == "OFFER_OBSERVATION" and row["variant_scope"] == "ALTERNATIVE"
+        if row["source_domain"] == source_domain and row["row_kind"] == "OFFER_OBSERVATION" and row["variant_scope"] == "ALTERNATIVE"
     )
     unresolved = sum(1 for row in rows if row["variant_scope"] == "UNRESOLVED")
     print(f"Sandix tokens: {sandix_original} original, {sandix_alternative} alternative")
-    print(f"Profibagr observations: {profibagr_original} original, {profibagr_alternative} alternative, {unresolved} unresolved")
+    print(f"{source_domain} observations: {competitor_original} original, {competitor_alternative} alternative, {unresolved} unresolved")
     print("Sample filter rows:")
     for row in rows[:10]:
         print(
@@ -371,7 +386,14 @@ def print_preview(rows: list[dict[str, object]]) -> None:
 
 def main() -> int:
     load_dotenv(Path(__file__).resolve().parent / ".env")
-    load_dotenv(Path(__file__).resolve().parent.parent / "profibagr-scraper" / ".env")
+    competitor_code = os.getenv("COMPETITOR_CODE") or DEFAULT_COMPETITOR_CODE
+    competitor_env_file = os.getenv("COMPETITOR_ENV_FILE")
+    if competitor_env_file:
+        load_dotenv(competitor_env_file)
+    elif competitor_code == DEFAULT_COMPETITOR_CODE:
+        load_dotenv(Path(__file__).resolve().parent.parent / "profibagr-scraper" / ".env")
+    competitor_code = os.getenv("COMPETITOR_CODE") or competitor_code
+    competitor_name = os.getenv("COMPETITOR_NAME") or DEFAULT_COMPETITOR_NAME
 
     try:
         with connect(get_env_default("PG_MONITOR_DB", "sandix_price_monitor"), "PG_MONITOR") as monitor_conn, connect(
@@ -381,21 +403,21 @@ def main() -> int:
             seed_variant_suffix_catalog(analytics_conn, ROOT / "rozliseni_alternativ.xlsx")
             suffixes = fetch_variant_suffixes(analytics_conn)
             source_rows = fetch_source_rows(monitor_conn)
-            scrape_run = fetch_latest_successful_scrape_run(monitor_conn)
+            scrape_run = fetch_latest_successful_scrape_run(monitor_conn, competitor_code)
             request_rows = fetch_request_product_rows(monitor_conn, scrape_run["run_id"])
             observation_rows = fetch_observation_rows(monitor_conn, scrape_run["run_id"])
             generated_at = datetime.now(timezone.utc)
 
             review_rows = []
             review_rows.extend(build_source_rows(source_rows, suffixes, generated_at))
-            review_rows.extend(build_request_rows(request_rows, suffixes, scrape_run["run_id"], generated_at))
-            review_rows.extend(build_observation_rows(observation_rows, suffixes, scrape_run["run_id"], generated_at))
+            review_rows.extend(build_request_rows(request_rows, suffixes, scrape_run["run_id"], generated_at, competitor_code))
+            review_rows.extend(build_observation_rows(observation_rows, suffixes, scrape_run["run_id"], generated_at, competitor_code))
 
             source_sync_run_id = source_rows[0]["last_sync_run_id"] if source_rows else None
             with analytics_conn.transaction():
                 write_snapshot(analytics_conn, review_rows, source_sync_run_id, scrape_run["run_id"])
 
-            print_preview(review_rows)
+            print_preview(review_rows, competitor_code)
     except Exception as exc:  # pylint: disable=broad-except
         print(f"Part-number filter ETL failed: {exc}", file=sys.stderr)
         return 1

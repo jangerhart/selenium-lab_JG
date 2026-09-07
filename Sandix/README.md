@@ -1,21 +1,22 @@
 # Sandix
 
-Sandix is a Python project scaffold created in this repository.
+Sandix is the workspace for competitor price monitoring and reporting.
 
-## Quick start
+## Main Pieces
 
-1. Create and activate a virtual environment.
-2. Install in editable mode:
+- `profibagr-scraper/`: shared competitor scraper
+- `analytics-etl/`: shared analytics ETL, filter ETL, and pipeline wrapper
+- `docs/`: project context, handoff, and database notes
+
+## Normal Run
+
+Use the wrapper for a full competitor run:
 
 ```bash
-pip install -e .
+python3 analytics-etl/run_competitor_pipeline.py --scope queue
 ```
 
-3. Run the CLI:
-
-```bash
-sandix
-```
+To switch competitor, set `COMPETITOR_CODE` and `COMPETITOR_NAME` in the environment or `.env` file.
 
 ## Development
 

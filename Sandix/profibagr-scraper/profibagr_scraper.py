@@ -41,8 +41,18 @@ from sandix.alternatives import fetch_variant_suffixes  # noqa: E402
 from sandix.part_numbers import dedupe_part_numbers_by_base  # noqa: E402
 
 
-BASE_URL = "https://www.profibagr.cz"
-SEARCH_PATH = "/search"
+SCRAPER_ENV_FILE = os.getenv("COMPETITOR_ENV_FILE")
+load_dotenv(SCRAPER_ENV_FILE or Path(__file__).resolve().parent / ".env")
+
+
+COMPETITOR_CODE = os.getenv("COMPETITOR_CODE") or "PROFIBAGR"
+COMPETITOR_NAME = os.getenv("COMPETITOR_NAME") or "Profibagr"
+BASE_URL = os.getenv("BASE_URL") or "https://www.profibagr.cz"
+SEARCH_PATH = os.getenv("SEARCH_PATH") or "/search"
+SEARCH_PARAM = os.getenv("SEARCH_PARAM") or "phrase"
+COMPETITOR_SLUG = re.sub(r"[^a-z0-9]+", "_", COMPETITOR_CODE.lower()).strip("_") or "competitor"
+
+
 REQUEST_TIMEOUT_SECONDS = 15
 REQUEST_DELAY_SECONDS_DEFAULT = 3.0
 REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=15.0, write=10.0, pool=10.0)
@@ -101,9 +111,9 @@ def normalize_part_number_loose(value: str | None) -> str:
 
 def setup_logging(run_id: str, logs_dir: Path) -> logging.Logger:
     logs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = logs_dir / f"profibagr_{run_id}.log"
+    log_path = logs_dir / f"{COMPETITOR_SLUG}_{run_id}.log"
 
-    logger = logging.getLogger("profibagr_scraper")
+    logger = logging.getLogger(f"{COMPETITOR_SLUG}_scraper")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
 
@@ -236,14 +246,15 @@ def ensure_competitor_id(conn: psycopg.Connection) -> int:
         cur.execute(
             """
             INSERT INTO scraper.competitor (competitor_code, competitor_name, base_url, default_currency, enabled)
-            VALUES ('PROFIBAGR', 'Profibagr', 'https://www.profibagr.cz', 'CZK', true)
+            VALUES (%s, %s, %s, 'CZK', true)
             ON CONFLICT (competitor_code) DO UPDATE SET
                 competitor_name = EXCLUDED.competitor_name,
                 base_url = EXCLUDED.base_url,
                 default_currency = EXCLUDED.default_currency,
                 enabled = EXCLUDED.enabled
             RETURNING competitor_id
-            """
+            """,
+            (COMPETITOR_CODE, COMPETITOR_NAME, BASE_URL),
         )
         return int(cur.fetchone()[0])
 
@@ -317,7 +328,7 @@ def create_scrape_run(
                 "STARTED",
                 queue_count,
                 raw_file_path,
-                f"{source_database}::profibagr_scraper",
+                f"{source_database}::{COMPETITOR_SLUG}_scraper",
             ),
         )
 
@@ -547,6 +558,15 @@ def parse_search_product_urls(html: str) -> list[str]:
             continue
         urls.append(urljoin(BASE_URL, href))
 
+    if not urls:
+        for card in soup.select("article.commodityBox"):
+            anchor = card.select_one("a.inner[href]") or card.select_one("a[href]")
+            if not anchor:
+                continue
+            href = anchor.get("href", "").strip()
+            if href:
+                urls.append(urljoin(BASE_URL, href))
+
     # fallback when card structure changes
     if not urls:
         for anchor in soup.select("a[href]"):
@@ -677,7 +697,7 @@ def scrape_part_number(
     logger.info("SEARCH: %s", search_part_number)
 
     try:
-        response = client.get(SEARCH_PATH, params={"phrase": search_part_number})
+        response = client.get(SEARCH_PATH, params={SEARCH_PARAM: search_part_number})
     except httpx.TimeoutException as exc:
         logger.error("TIMEOUT: %s", search_part_number)
         return FetchResult(
@@ -915,7 +935,7 @@ def write_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Profibagr scraper PoC")
+    parser = argparse.ArgumentParser(description=f"{COMPETITOR_NAME} scraper PoC")
     parser.add_argument(
         "--scope",
         choices=("queue", "full"),
@@ -932,7 +952,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    load_dotenv(Path(__file__).resolve().parent / ".env")
     args = parse_args()
     request_delay_seconds = get_request_delay_seconds()
 
@@ -940,8 +959,8 @@ def main() -> int:
     scrape_run_id = uuid.uuid4()
     base_dir = Path(__file__).resolve().parent
     logs_dir = base_dir / "logs"
-    data_dir = base_dir / "data" / "raw" / "profibagr"
-    csv_path = data_dir / f"profibagr_{run_id}.csv"
+    data_dir = base_dir / "data" / "raw" / COMPETITOR_SLUG
+    csv_path = data_dir / f"{COMPETITOR_SLUG}_{run_id}.csv"
 
     logger = setup_logging(run_id, logs_dir)
 
@@ -963,7 +982,7 @@ def main() -> int:
         "User-Agent": (
             "Mozilla/5.0 (X11; Linux x86_64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/127.0.0.0 Safari/537.36 ProfibagrScraperPoC/1.0"
+            f"Chrome/127.0.0.0 Safari/537.36 {re.sub(r'[^A-Za-z0-9]+', '', COMPETITOR_NAME)}ScraperPoC/1.0"
         ),
         "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
     }

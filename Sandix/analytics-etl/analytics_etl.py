@@ -18,8 +18,8 @@ if str(SRC) not in sys.path:
 
 from sandix.analytics import (  # noqa: E402
     ANALYTICS_DDL,
-    COMPETITOR_CODE,
-    COMPETITOR_NAME,
+    DEFAULT_COMPETITOR_CODE,
+    DEFAULT_COMPETITOR_NAME,
     VALID_SEARCH_STATUSES,
     normalize_search_status,
     price_gap,
@@ -67,7 +67,7 @@ def ensure_reporting_objects(conn: psycopg.Connection) -> None:
             cur.execute(statement)
 
 
-def fetch_latest_run(conn: psycopg.Connection) -> dict[str, object]:
+def fetch_latest_run(conn: psycopg.Connection, competitor_code: str) -> dict[str, object]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -80,13 +80,15 @@ def fetch_latest_run(conn: psycopg.Connection) -> dict[str, object]:
                 queue_count
             FROM export.scrape_run_v
             WHERE status = 'SUCCESS'
+              AND competitor_code = %s
             ORDER BY started_at DESC
             LIMIT 1
-            """
+            """,
+            (competitor_code,),
         )
         row = cur.fetchone()
         if row is None:
-            raise RuntimeError("No successful Profibagr scrape run found")
+            raise RuntimeError(f"No successful scrape run found for competitor {competitor_code}")
         columns = [desc.name for desc in cur.description]
     return dict(zip(columns, row))
 
@@ -231,7 +233,12 @@ def build_scope_search_status_rows(
     ]
 
 
-def build_scope_price_rows(rows: list[dict[str, object]], comparison_scope: str) -> list[dict[str, object]]:
+def build_scope_price_rows(
+    rows: list[dict[str, object]],
+    comparison_scope: str,
+    competitor_code: str,
+    competitor_name: str,
+) -> list[dict[str, object]]:
     grouped: dict[int, list[dict[str, object]]] = {}
     for row in rows:
         grouped.setdefault(int(row["product_id"]), []).append(row)
@@ -252,17 +259,19 @@ def build_scope_price_rows(rows: list[dict[str, object]], comparison_scope: str)
         comparison_rows.append(
             {
                 "comparison_scope": comparison_scope,
+                "competitor_code": competitor_code,
+                "competitor_name": competitor_name,
                 "product_id": product_id,
                 "sandix_part_number": best_row["sandix_part_number"],
-                "profibagr_part_number": best_row["found_identifier"],
+                "competitor_part_number": best_row["found_identifier"],
                 "source_identifier": best_row["source_identifier"],
                 "searched_identifier": best_row["searched_identifier"],
                 "product_name": best_row["product_name"],
                 "sandix_price_net": best_row["sandix_price_net"],
                 "sandix_price_gross": best_row["sandix_price_gross"],
-                "profibagr_price_net": best_row["price_without_vat"],
-                "profibagr_price_gross": best_row["price_with_vat"],
-                "profibagr_product_url": best_row["product_url"],
+                "competitor_price_net": best_row["price_without_vat"],
+                "competitor_price_gross": best_row["price_with_vat"],
+                "competitor_product_url": best_row["product_url"],
                 "search_request_count": len({row["search_request_id"] for row in group_rows}),
                 "raw_offer_count": len(group_rows),
                 "valid_offer_count": len(valid_rows),
@@ -271,9 +280,9 @@ def build_scope_price_rows(rows: list[dict[str, object]], comparison_scope: str)
         )
 
     for row in comparison_rows:
-        row["price_gap_net"] = price_gap(row["sandix_price_net"], row["profibagr_price_net"])
-        row["price_gap_gross"] = price_gap(row["sandix_price_gross"], row["profibagr_price_gross"])
-        row["price_gap_pct_vs_competitor"] = price_gap_pct_vs_competitor(row["sandix_price_gross"], row["profibagr_price_gross"])
+        row["price_gap_net"] = price_gap(row["sandix_price_net"], row["competitor_price_net"])
+        row["price_gap_gross"] = price_gap(row["sandix_price_gross"], row["competitor_price_gross"])
+        row["price_gap_pct_vs_competitor"] = price_gap_pct_vs_competitor(row["sandix_price_gross"], row["competitor_price_gross"])
 
     comparison_rows.sort(
         key=lambda row: (
@@ -304,8 +313,8 @@ def build_scope_batch_kpi(
     return {
         "source_run_id": source_run["run_id"],
         "comparison_scope": comparison_scope,
-        "competitor_code": source_run["competitor_code"] or COMPETITOR_CODE,
-        "competitor_name": source_run["competitor_name"] or COMPETITOR_NAME,
+        "competitor_code": source_run["competitor_code"] or DEFAULT_COMPETITOR_CODE,
+        "competitor_name": source_run["competitor_name"] or DEFAULT_COMPETITOR_NAME,
         "generated_at": datetime.now(timezone.utc),
         "batch_started_at": source_run["started_at"],
         "batch_finished_at": source_run["finished_at"],
@@ -338,20 +347,20 @@ def write_variant_snapshot(
     generated_at = batch_rows[0]["generated_at"]
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM reporting.profibagr_variant_price_comparison WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_price_comparison WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.execute(
-            "DELETE FROM reporting.profibagr_variant_search_status WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_search_status WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.execute(
-            "DELETE FROM reporting.profibagr_variant_batch_kpi WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_batch_kpi WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.executemany(
             """
-            INSERT INTO reporting.profibagr_variant_batch_kpi (
+            INSERT INTO reporting.competitor_batch_kpi (
                 source_run_id,
                 comparison_scope,
                 competitor_code,
@@ -403,20 +412,22 @@ def write_variant_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.profibagr_variant_price_comparison (
+            INSERT INTO reporting.competitor_price_comparison (
                 source_run_id,
+                competitor_code,
+                competitor_name,
                 comparison_scope,
                 product_id,
                 sandix_part_number,
-                profibagr_part_number,
+                competitor_part_number,
                 source_identifier,
                 searched_identifier,
                 product_name,
                 sandix_price_net,
                 sandix_price_gross,
-                profibagr_price_net,
-                profibagr_price_gross,
-                profibagr_product_url,
+                competitor_price_net,
+                competitor_price_gross,
+                competitor_product_url,
                 price_gap_net,
                 price_gap_gross,
                 price_gap_pct_vs_competitor,
@@ -426,24 +437,26 @@ def write_variant_snapshot(
                 search_request_count,
                 generated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             [
                 (
                     source_run_id,
+                    row["competitor_code"],
+                    row["competitor_name"],
                     row["comparison_scope"],
                     row["product_id"],
                     row["sandix_part_number"],
-                    row["profibagr_part_number"],
+                    row["competitor_part_number"],
                     row["source_identifier"],
                     row["searched_identifier"],
                     row["product_name"],
                     row["sandix_price_net"],
                     row["sandix_price_gross"],
-                    row["profibagr_price_net"],
-                    row["profibagr_price_gross"],
-                    row["profibagr_product_url"],
+                    row["competitor_price_net"],
+                    row["competitor_price_gross"],
+                    row["competitor_product_url"],
                     row["price_gap_net"],
                     row["price_gap_gross"],
                     row["price_gap_pct_vs_competitor"],
@@ -458,18 +471,22 @@ def write_variant_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.profibagr_variant_search_status (
+            INSERT INTO reporting.competitor_search_status (
                 source_run_id,
+                competitor_code,
+                competitor_name,
                 comparison_scope,
                 search_status,
                 request_count,
                 request_pct,
                 generated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 (
                     source_run_id,
+                    batch_rows[0]["competitor_code"],
+                    batch_rows[0]["competitor_name"],
                     row["comparison_scope"],
                     row["search_status"],
                     row["request_count"],
@@ -496,7 +513,7 @@ def print_scope_preview(batch_rows: list[dict[str, object]], comparison_rows_by_
         )
         for row in comparison_rows[:5]:
             print(
-                f"  - Sandix {row['sandix_part_number']} vs Profibagr {row['profibagr_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
+                f"  - Sandix {row['sandix_part_number']} vs competitor {row['competitor_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
             )
 
 
@@ -602,15 +619,15 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
             SELECT
                 c.product_id,
                 b.source_identifier AS sandix_part_number,
-                b.found_identifier AS profibagr_part_number,
+                b.found_identifier AS competitor_part_number,
                 b.source_identifier,
                 b.searched_identifier,
                 b.product_name,
                 b.sandix_price_net,
                 b.sandix_price_gross,
-                b.price_without_vat AS profibagr_price_net,
-                b.price_with_vat AS profibagr_price_gross,
-                b.product_url AS profibagr_product_url,
+                b.price_without_vat AS competitor_price_net,
+                b.price_with_vat AS competitor_price_gross,
+                b.product_url AS competitor_product_url,
                 c.search_request_count,
                 c.raw_offer_count,
                 c.valid_offer_count,
@@ -630,9 +647,9 @@ def fetch_price_comparison_rows(conn: psycopg.Connection, source_run_id: uuid.UU
         row["sandix_part_number"] = sandix_part_numbers.get(int(row["product_id"]), row["source_identifier"])
 
     for row in rows:
-        row["price_gap_net"] = price_gap(row["sandix_price_net"], row["profibagr_price_net"])
-        row["price_gap_gross"] = price_gap(row["sandix_price_gross"], row["profibagr_price_gross"])
-        row["price_gap_pct_vs_competitor"] = price_gap_pct_vs_competitor(row["sandix_price_gross"], row["profibagr_price_gross"])
+        row["price_gap_net"] = price_gap(row["sandix_price_net"], row["competitor_price_net"])
+        row["price_gap_gross"] = price_gap(row["sandix_price_gross"], row["competitor_price_gross"])
+        row["price_gap_pct_vs_competitor"] = price_gap_pct_vs_competitor(row["sandix_price_gross"], row["competitor_price_gross"])
     rows.sort(
         key=lambda row: (
             row["price_gap_pct_vs_competitor"] is not None,
@@ -676,8 +693,9 @@ def build_batch_kpi(
 
     return {
         "source_run_id": source_run["run_id"],
-        "competitor_code": source_run["competitor_code"] or COMPETITOR_CODE,
-        "competitor_name": source_run["competitor_name"] or COMPETITOR_NAME,
+        "competitor_code": source_run["competitor_code"] or DEFAULT_COMPETITOR_CODE,
+        "competitor_name": source_run["competitor_name"] or DEFAULT_COMPETITOR_NAME,
+        "comparison_scope": "ORIGINAL",
         "generated_at": datetime.now(timezone.utc),
         "batch_started_at": source_run["started_at"],
         "batch_finished_at": source_run["finished_at"],
@@ -706,15 +724,16 @@ def write_snapshot(
     search_status_rows: list[dict[str, object]],
 ) -> None:
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM reporting.profibagr_price_comparison WHERE source_run_id = %s", (source_run["run_id"],))
-        cur.execute("DELETE FROM reporting.profibagr_search_status WHERE source_run_id = %s", (source_run["run_id"],))
-        cur.execute("DELETE FROM reporting.profibagr_batch_kpi WHERE source_run_id = %s", (source_run["run_id"],))
+        cur.execute("DELETE FROM reporting.competitor_price_comparison WHERE source_run_id = %s", (source_run["run_id"],))
+        cur.execute("DELETE FROM reporting.competitor_search_status WHERE source_run_id = %s", (source_run["run_id"],))
+        cur.execute("DELETE FROM reporting.competitor_batch_kpi WHERE source_run_id = %s", (source_run["run_id"],))
         cur.execute(
             """
-            INSERT INTO reporting.profibagr_batch_kpi (
+            INSERT INTO reporting.competitor_batch_kpi (
                 source_run_id,
                 competitor_code,
                 competitor_name,
+                comparison_scope,
                 generated_at,
                 batch_started_at,
                 batch_finished_at,
@@ -736,6 +755,7 @@ def write_snapshot(
                 %(source_run_id)s,
                 %(competitor_code)s,
                 %(competitor_name)s,
+                %(comparison_scope)s,
                 %(generated_at)s,
                 %(batch_started_at)s,
                 %(batch_finished_at)s,
@@ -759,19 +779,22 @@ def write_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.profibagr_price_comparison (
+            INSERT INTO reporting.competitor_price_comparison (
                 source_run_id,
+                competitor_code,
+                competitor_name,
+                comparison_scope,
                 product_id,
                 sandix_part_number,
-                profibagr_part_number,
+                competitor_part_number,
                 source_identifier,
                 searched_identifier,
                 product_name,
                 sandix_price_net,
                 sandix_price_gross,
-                profibagr_price_net,
-                profibagr_price_gross,
-                profibagr_product_url,
+                competitor_price_net,
+                competitor_price_gross,
+                competitor_product_url,
                 price_gap_net,
                 price_gap_gross,
                 price_gap_pct_vs_competitor,
@@ -781,23 +804,26 @@ def write_snapshot(
                 search_request_count,
                 generated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             [
                 (
                     source_run["run_id"],
+                    batch_kpi["competitor_code"],
+                    batch_kpi["competitor_name"],
+                    batch_kpi["comparison_scope"],
                     row["product_id"],
                     row["sandix_part_number"],
-                    row["profibagr_part_number"],
+                    row["competitor_part_number"],
                     row["source_identifier"],
                     row["searched_identifier"],
                     row["product_name"],
                     row["sandix_price_net"],
                     row["sandix_price_gross"],
-                    row["profibagr_price_net"],
-                    row["profibagr_price_gross"],
-                    row["profibagr_product_url"],
+                    row["competitor_price_net"],
+                    row["competitor_price_gross"],
+                    row["competitor_product_url"],
                     row["price_gap_net"],
                     row["price_gap_gross"],
                     row["price_gap_pct_vs_competitor"],
@@ -812,17 +838,23 @@ def write_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.profibagr_search_status (
+            INSERT INTO reporting.competitor_search_status (
                 source_run_id,
+                competitor_code,
+                competitor_name,
+                comparison_scope,
                 search_status,
                 request_count,
                 request_pct,
                 generated_at
-            ) VALUES (%s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 (
                     source_run["run_id"],
+                    batch_kpi["competitor_code"],
+                    batch_kpi["competitor_name"],
+                    batch_kpi["comparison_scope"],
                     row["search_status"],
                     row["request_count"],
                     row["request_pct"],
@@ -835,7 +867,7 @@ def write_snapshot(
 
 def print_preview(source_run: dict[str, object], batch_kpi: dict[str, object], comparison_rows: list[dict[str, object]]) -> None:
     print(
-        f"Latest Profibagr run {source_run['run_id']} produced {batch_kpi['matched_product_count']} matched products from {batch_kpi['search_success_count']} successful search requests"
+        f"Latest {batch_kpi['competitor_name']} run {source_run['run_id']} produced {batch_kpi['matched_product_count']} matched products from {batch_kpi['search_success_count']} successful search requests"
     )
     print(
         f"Coverage: {batch_kpi['search_success_count']} OK, {batch_kpi['not_found_count']} NOT_FOUND, {batch_kpi['error_count']} ERROR"
@@ -846,20 +878,27 @@ def print_preview(source_run: dict[str, object], batch_kpi: dict[str, object], c
     print("Top price gaps:")
     for row in comparison_rows[:10]:
         print(
-            f"- Sandix {row['sandix_part_number']} vs Profibagr {row['profibagr_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
+            f"- Sandix {row['sandix_part_number']} vs competitor {row['competitor_part_number']}: gap {row['price_gap_gross']} ({row['price_gap_pct_vs_competitor']}%)"
         )
 
 
 def main() -> int:
     load_dotenv(Path(__file__).resolve().parent / ".env")
-    load_dotenv(Path(__file__).resolve().parent.parent / "profibagr-scraper" / ".env")
+    competitor_code = get_env_default("COMPETITOR_CODE", DEFAULT_COMPETITOR_CODE)
+    competitor_env_file = os.getenv("COMPETITOR_ENV_FILE")
+    if competitor_env_file:
+        load_dotenv(competitor_env_file)
+    elif competitor_code == DEFAULT_COMPETITOR_CODE:
+        load_dotenv(Path(__file__).resolve().parent.parent / "profibagr-scraper" / ".env")
+    competitor_code = get_env_default("COMPETITOR_CODE", competitor_code)
+    competitor_name = get_env_default("COMPETITOR_NAME", DEFAULT_COMPETITOR_NAME)
 
     try:
         with connect(get_env_default("PG_MONITOR_DB", "sandix_price_monitor"), "PG_MONITOR") as monitor_conn, connect(
             get_env_default("PG_ANALYTICS_DB", "sandix_price_analytics"), "PG_ANALYTICS"
         ) as analytics_conn:
             ensure_reporting_objects(analytics_conn)
-            source_run = fetch_latest_run(monitor_conn)
+            source_run = fetch_latest_run(monitor_conn, competitor_code)
             suffixes = load_alternative_suffixes(ROOT / "rozliseni_alternativ.xlsx")
             known_identifiers = fetch_known_identifiers(monitor_conn)
             sandix_part_numbers = fetch_sandix_part_number_map(analytics_conn)
@@ -877,7 +916,7 @@ def main() -> int:
                 for row in scope_rows:
                     row["sandix_part_number"] = sandix_part_numbers.get(int(row["product_id"]), row["source_identifier"])
                 request_ids = {int(row["search_request_id"]) for row in scope_rows}
-                comparison_rows = build_scope_price_rows(scope_rows, scope)
+                comparison_rows = build_scope_price_rows(scope_rows, scope, source_run["competitor_code"], source_run["competitor_name"])
                 search_status_rows = build_scope_search_status_rows(request_ids, status_map, scope)
                 batch_rows.append(
                     build_scope_batch_kpi(
@@ -902,7 +941,12 @@ def main() -> int:
                 scoped_row["sandix_part_number"] = sandix_alternative_part_number
                 sandix_alternative_scope_rows.append(scoped_row)
 
-            sandix_alternative_comparison_rows = build_scope_price_rows(sandix_alternative_scope_rows, "SANDIX_ALTERNATIVE")
+            sandix_alternative_comparison_rows = build_scope_price_rows(
+                sandix_alternative_scope_rows,
+                "SANDIX_ALTERNATIVE",
+                source_run["competitor_code"],
+                source_run["competitor_name"],
+            )
 
             with analytics_conn.transaction():
                 write_snapshot(

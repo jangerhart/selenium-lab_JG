@@ -43,6 +43,8 @@ Metabase
 - Scrapers collect facts and must not contain pricing business logic.
 - Prefer HTTP scraping over browser automation.
 - Each competitor gets its own scraper or adapter.
+- Shared ETL should stay competitor-parameterized instead of being duplicated per competitor.
+- Normal production runs should use one explicit wrapper that sequences scraper -> analytics ETL -> filter ETL.
 - Scrapers should consume stable PostgreSQL views rather than internal tables where possible.
 - Preserve both original and transformed part numbers for traceability.
 - Historical and alternative part numbers are first-class data.

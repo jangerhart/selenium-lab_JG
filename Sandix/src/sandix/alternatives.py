@@ -189,7 +189,7 @@ def classify_competitor_variant(
 VARIANT_ANALYTICS_DDL = [
     "CREATE SCHEMA IF NOT EXISTS reporting",
     """
-    CREATE TABLE IF NOT EXISTS reporting.profibagr_variant_batch_kpi (
+    CREATE TABLE IF NOT EXISTS reporting.competitor_variant_batch_kpi (
         source_run_id uuid NOT NULL,
         comparison_scope text NOT NULL,
         competitor_code text NOT NULL,
@@ -216,20 +216,20 @@ VARIANT_ANALYTICS_DDL = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS reporting.profibagr_variant_price_comparison (
+    CREATE TABLE IF NOT EXISTS reporting.competitor_variant_price_comparison (
         source_run_id uuid NOT NULL,
         comparison_scope text NOT NULL,
         product_id bigint NOT NULL,
         sandix_part_number text,
-        profibagr_part_number text,
+        competitor_part_number text,
         source_identifier text,
         searched_identifier text NOT NULL,
         product_name text,
         sandix_price_net numeric(18,4),
         sandix_price_gross numeric(18,4),
-        profibagr_price_net numeric(18,4),
-        profibagr_price_gross numeric(18,4),
-        profibagr_product_url text,
+        competitor_price_net numeric(18,4),
+        competitor_price_gross numeric(18,4),
+        competitor_product_url text,
         price_gap_net numeric(18,4),
         price_gap_gross numeric(18,4),
         price_gap_pct_vs_competitor numeric(10,2),
@@ -242,15 +242,15 @@ VARIANT_ANALYTICS_DDL = [
     )
     """,
     """
-    ALTER TABLE reporting.profibagr_variant_price_comparison
+    ALTER TABLE reporting.competitor_variant_price_comparison
     ADD COLUMN IF NOT EXISTS sandix_part_number text
     """,
     """
-    ALTER TABLE reporting.profibagr_variant_price_comparison
-    ADD COLUMN IF NOT EXISTS profibagr_part_number text
+    ALTER TABLE reporting.competitor_variant_price_comparison
+    ADD COLUMN IF NOT EXISTS competitor_part_number text
     """,
     """
-    CREATE TABLE IF NOT EXISTS reporting.profibagr_variant_search_status (
+    CREATE TABLE IF NOT EXISTS reporting.competitor_variant_search_status (
         source_run_id uuid NOT NULL,
         comparison_scope text NOT NULL,
         search_status text NOT NULL,
@@ -261,39 +261,39 @@ VARIANT_ANALYTICS_DDL = [
     )
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_batch_original_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_batch_original_v AS
     SELECT *
-    FROM reporting.profibagr_variant_batch_kpi
+    FROM reporting.competitor_variant_batch_kpi
     WHERE comparison_scope = 'ORIGINAL'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ORIGINAL'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
       )
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_batch_alternative_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_batch_alternative_v AS
     SELECT *
-    FROM reporting.profibagr_variant_batch_kpi
+    FROM reporting.competitor_variant_batch_kpi
     WHERE comparison_scope = 'ALTERNATIVE'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ALTERNATIVE'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
       )
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_price_comparison_original_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_price_comparison_original_v AS
     SELECT *
-    FROM reporting.profibagr_variant_price_comparison
+    FROM reporting.competitor_variant_price_comparison
     WHERE comparison_scope = 'ORIGINAL'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ORIGINAL'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
@@ -301,13 +301,13 @@ VARIANT_ANALYTICS_DDL = [
     ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_price_comparison_alternative_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_price_comparison_alternative_v AS
     SELECT *
-    FROM reporting.profibagr_variant_price_comparison
+    FROM reporting.competitor_variant_price_comparison
     WHERE comparison_scope = 'ALTERNATIVE'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ALTERNATIVE'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
@@ -315,25 +315,25 @@ VARIANT_ANALYTICS_DDL = [
     ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_price_comparison_sandix_alternative_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_price_comparison_sandix_alternative_v AS
     SELECT *
-    FROM reporting.profibagr_variant_price_comparison
+    FROM reporting.competitor_variant_price_comparison
     WHERE comparison_scope = 'SANDIX_ALTERNATIVE'
       AND generated_at = (
           SELECT MAX(generated_at)
-          FROM reporting.profibagr_variant_price_comparison
+          FROM reporting.competitor_variant_price_comparison
           WHERE comparison_scope = 'SANDIX_ALTERNATIVE'
       )
     ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_search_status_original_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_search_status_original_v AS
     SELECT *
-    FROM reporting.profibagr_variant_search_status
+    FROM reporting.competitor_variant_search_status
     WHERE comparison_scope = 'ORIGINAL'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ORIGINAL'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1
@@ -341,13 +341,13 @@ VARIANT_ANALYTICS_DDL = [
     ORDER BY CASE search_status WHEN 'OK' THEN 1 WHEN 'NOT_FOUND' THEN 2 ELSE 3 END
     """,
     """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_search_status_alternative_v AS
+    CREATE OR REPLACE VIEW reporting.competitor_variant_latest_search_status_alternative_v AS
     SELECT *
-    FROM reporting.profibagr_variant_search_status
+    FROM reporting.competitor_variant_search_status
     WHERE comparison_scope = 'ALTERNATIVE'
       AND source_run_id = (
           SELECT source_run_id
-          FROM reporting.profibagr_variant_batch_kpi
+          FROM reporting.competitor_variant_batch_kpi
           WHERE comparison_scope = 'ALTERNATIVE'
           ORDER BY generated_at DESC, batch_finished_at DESC NULLS LAST
           LIMIT 1

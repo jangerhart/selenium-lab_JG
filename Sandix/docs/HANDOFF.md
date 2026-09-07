@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-05
+Last updated: 2026-09-07
 
 ## Current objective
 
@@ -11,9 +11,9 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Sandix is the active Python workspace inside the repo.
 - PostgreSQL and Metabase are running.
 - `price_scraper_ro` exists and is the scraper read-only role.
-- Profibagr PoC scraping works over HTTP without JavaScript.
-- Profibagr input filtering currently happens in the scraper query against `search_part_number_normalized`.
-- The scraper batch is capped at 500 part numbers.
+- Profibagr scraping works over HTTP without JavaScript.
+- `bagry-nd` now runs against `https://www.jcb-nahradni-dily.cz` with the same shared scraper and ETL layer.
+- The scraper queue is now competitor-agnostic and the full pipeline is driven by `COMPETITOR_CODE`.
 - `Sandix/docs/DATABASE.md` now contains the target database design.
 - `Sandix/docs/DATABASE.md` was trimmed to avoid duplicating project-wide principles from `Sandix/docs/PROJECT_CONTEXT.md`.
 - `Sandix/docs/DATABASE.md` was trimmed again to remove project-context-only sections.
@@ -21,7 +21,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - PostgreSQL provisioning account now owns and can write to `sandix_price_monitor` and `sandix_price_analytics`.
 - `sandix_price_monitor` and `sandix_price_analytics` now exist and are bootstrapped.
 - `Sandix/pohoda-etl/` now bootstraps PostgreSQL schemas/tables/views and writes monitor snapshots.
-- `Sandix/analytics-etl/` now contains the first usable Profibagr analytics ETL, plus a separate part-number filter ETL for original/alternative classification review.
+- `Sandix/analytics-etl/` now contains shared competitor analytics ETL, part-number filter ETL, and a wrapper that runs scraper -> analytics -> filter sequentially.
+- `Sandix/analytics-etl/setup_metabase_dashboard.py` now provisions the shared competitor dashboard in Metabase.
 - Suffixes now live in `sandix_price_analytics.reporting.variant_suffix_catalog`; Excel is only the initial seed source.
 - `Sandix/pohoda-etl/build_test_analytics.py` is now a compatibility wrapper to the new analytics ETL.
 - Metabase now has a first Sandix dashboard in collection `Sandix` with ID `2`, localized to Czech titles/descriptions, and cards for KPI, search status, price comparison, overpriced and underpriced items.
@@ -40,6 +41,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase card `43` was simplified to two columns (`stav_hledani`, `pocet_dotazu`) so the bar chart no longer asks for X/Y axes.
 - Metabase card `44` now includes `odkaz_na_profibagr` and the analytics snapshot stores the best valid competitor product URL.
 - Metabase API connection variables are stored locally in `Sandix/analytics-etl/.env` and are exposed for future scripts via `sandix.metabase`.
+- `Sandix/analytics-etl/run_competitor_pipeline.py` is the default sequential pipeline entrypoint for one competitor run.
 - POHODA ETL now writes current snapshots into `sandix_price_monitor` as well as RAW CSV.
 - Profibagr scraper now writes scrape runs, search requests and offer observations into `sandix_price_monitor`.
 - Final `scraper.scrape_run` state after cleanup: `SUCCESS=1`, `FAILED=1`, `RUNNING=0`.
@@ -59,6 +61,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/analytics-etl/.env.example`
 - `Sandix/analytics-etl/.env`
 - `Sandix/analytics-etl/part_number_filter_etl.py`
+- `Sandix/analytics-etl/run_competitor_pipeline.py`
+- `Sandix/analytics-etl/setup_metabase_dashboard.py`
 - `Sandix/analytics-etl/.gitignore`
 - `Sandix/analytics-etl/README.md`
 - `Sandix/analytics-etl/analytics_etl.py`
@@ -72,6 +76,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/pohoda-etl/pohoda_etl.py`
 - `Sandix/profibagr-scraper/README.md`
 - `Sandix/profibagr-scraper/profibagr_scraper.py`
+- `Sandix/README.md`
 - `Sandix/sitecustomize.py`
 - `Sandix/src/sandix/analytics.py`
 - `Sandix/src/sandix/part_numbers.py`
@@ -111,12 +116,14 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `python analytics-etl/part_number_filter_etl.py` now seeds and reads suffixes from `reporting.variant_suffix_catalog`
 - `python analytics-etl/analytics_etl.py` against the production queue, twice to verify idempotence
 - `python analytics-etl/analytics_etl.py` with dual original/alternative reporting enabled
+- `python -m py_compile analytics-etl/run_competitor_pipeline.py analytics-etl/analytics_etl.py analytics-etl/part_number_filter_etl.py profibagr-scraper/profibagr_scraper.py`
 - Metabase query checks via `POST /api/agent/v1/question/{id}/query` for cards `42` to `46`
 - Metabase query check for card `44` confirms the Profibagr URL column is returned and populated.
 
 ## Results
 
 - Batch run succeeded.
+- Shared competitor pipeline now executes scraper -> analytics ETL -> part-number filter ETL in sequence.
 - Last successful CSV: `Sandix/profibagr-scraper/data/raw/profibagr/profibagr_20260828_061800.csv`
 - Latest batch size: 100 search P/N
 - Latest output: 140 CSV rows, 93 OK, 47 NOT_FOUND
@@ -167,6 +174,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - All five Metabase cards now execute successfully again and the dashboard is usable.
 - The comparison table now exposes the Profibagr product URL as a clickable-looking string column.
 - Profibagr replacement detection is still weak; alternative matching needs separate manual analysis.
+- The shared wrapper is explicit orchestration only; there is still no scheduler or queue-based automation between stages.
 
 ## Unresolved issues
 
@@ -182,6 +190,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Continue with any database-schema implementation work from `Sandix/docs/DATABASE.md`.
 - Keep shared business principles in `Sandix/docs/PROJECT_CONTEXT.md` and DB-specific decisions in `Sandix/docs/DATABASE.md`.
 - Keep checking for overlap, but prefer moving general context out of `Sandix/docs/DATABASE.md`.
+- Use `analytics-etl/run_competitor_pipeline.py` for a normal one-competitor run; keep direct ETL invocations for debugging only.
 - The new coverage view is the preferred place to answer whether a Sandix alternative PN was searched, missed, or matched as original/alternative in Profibagr.
 - Next step: create the first Metabase dashboard / questions directly on `reporting.profibagr_latest_batch_v`, `reporting.profibagr_latest_price_comparison_v`, and `reporting.profibagr_latest_search_status_v`.
 - Next step: review the Metabase dashboard and decide whether to keep the current layout or add a date/status filter.
