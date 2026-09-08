@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 ## Current objective
 
@@ -23,6 +23,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/pohoda-etl/` now bootstraps PostgreSQL schemas/tables/views and writes monitor snapshots.
 - `Sandix/analytics-etl/` now contains shared competitor analytics ETL, part-number filter ETL, and a wrapper that runs scraper -> analytics -> filter sequentially.
 - `Sandix/analytics-etl/setup_metabase_dashboard.py` now provisions the shared competitor dashboard in Metabase.
+- Shared dashboard `Sandix - konkurenti` is provisioned as Metabase dashboard `5` in collection `Sandix`; it mirrors the full-width 12-card Profibagr layout and preserves market-average card `64` plus competitor coverage card `65`.
+- Dashboard `4` is an older duplicate in the root Metabase collection from initial provisioning without `METABASE_COLLECTION_ID`; it has not been removed.
 - Suffixes now live in `sandix_price_analytics.reporting.variant_suffix_catalog`; Excel is only the initial seed source.
 - `Sandix/pohoda-etl/build_test_analytics.py` is now a compatibility wrapper to the new analytics ETL.
 - Metabase now has a first Sandix dashboard in collection `Sandix` with ID `2`, localized to Czech titles/descriptions, and cards for KPI, search status, price comparison, overpriced and underpriced items.
@@ -42,6 +44,11 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase card `44` now includes `odkaz_na_profibagr` and the analytics snapshot stores the best valid competitor product URL.
 - Metabase API connection variables are stored locally in `Sandix/analytics-etl/.env` and are exposed for future scripts via `sandix.metabase`.
 - `Sandix/analytics-etl/run_competitor_pipeline.py` is the default sequential pipeline entrypoint for one competitor run.
+- `profibagr-scraper/README.md` and `analytics-etl/README.md` now contain copy-paste commands for Profibagr and Bagry ND, manual ETL recovery, full pipeline runs, and Metabase provisioning.
+- Generic reporting DDL now projects `comparison_scope` in `competitor_latest_batch_v` and leaves legacy physical `reporting.profibagr_*` tables untouched.
+- Variant snapshots now write to `reporting.competitor_variant_*` rather than the base competitor reporting tables.
+- The filter ETL recreates the multi-competitor coverage views when their column layout changes; PostgreSQL cannot apply that layout change through `CREATE OR REPLACE VIEW`.
+- Analytics and filter ETL treat completed `SUCCESS` and `PARTIAL` scrape runs as reportable; `ABORTED` and active runs remain excluded.
 - POHODA ETL now writes current snapshots into `sandix_price_monitor` as well as RAW CSV.
 - Profibagr scraper now writes scrape runs, search requests and offer observations into `sandix_price_monitor`.
 - Final `scraper.scrape_run` state after cleanup: `SUCCESS=1`, `FAILED=1`, `RUNNING=0`.
@@ -92,7 +99,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Existing objects referenced in this work: `scraper.v_profibagr_input`, `scraper.v_profibagr_search_queue`, `price_scraper_ro`
 - Changed in `sandix_price_monitor`: `etl.pohoda_sync_run`, `source_pohoda.stock_current`, `core.product`, `core.own_price_history`, `core.product_identifier`, `scraper.competitor`, `scraper.scrape_run`, `scraper.search_request`, `scraper.search_request_product`, `scraper.offer_observation`
 - Changed in `sandix_price_monitor`: `core.product_current_v`, `core.product_search_identifier_v`, `scraper.v_search_queue`, `export.product_current_v`, `export.own_price_history_v`, `export.competitor_offer_history_v`, `export.scrape_run_v`
-- Changed in `sandix_price_analytics`: schemas `mart`, `dim`, `fact`, `reporting`; new reporting objects `reporting.profibagr_batch_kpi`, `reporting.profibagr_price_comparison`, `reporting.profibagr_search_status`, `reporting.profibagr_latest_batch_v`, `reporting.profibagr_latest_price_comparison_v`, `reporting.profibagr_latest_overpriced_v`, `reporting.profibagr_latest_underpriced_v`, `reporting.profibagr_latest_search_status_v`
+- Changed in `sandix_price_analytics`: schemas `mart`, `dim`, `fact`, `reporting`; legacy Profibagr reporting objects plus shared `reporting.competitor_*`, `reporting.competitor_variant_*`, and `reporting.part_number_filter_*` reporting tables/views
 
 ## Tests executed
 
@@ -117,6 +124,11 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `python analytics-etl/analytics_etl.py` against the production queue, twice to verify idempotence
 - `python analytics-etl/analytics_etl.py` with dual original/alternative reporting enabled
 - `python -m py_compile analytics-etl/run_competitor_pipeline.py analytics-etl/analytics_etl.py analytics-etl/part_number_filter_etl.py profibagr-scraper/profibagr_scraper.py`
+- `python analytics-etl/analytics_etl.py` after generic reporting schema correction
+- `python analytics-etl/part_number_filter_etl.py` after multi-competitor coverage view migration
+- `python analytics-etl/analytics_etl.py` and `python analytics-etl/part_number_filter_etl.py` against completed full-scope Profibagr run `bf46f2fd-8137-4657-8f0a-6c782ca28721`
+- Metabase provisioning verification through `POST /api/agent/v1/question/{id}/query` for cards `62` to `73`
+- `python -m unittest tests.test_analytics tests.test_part_numbers`
 - Metabase query checks via `POST /api/agent/v1/question/{id}/query` for cards `42` to `46`
 - Metabase query check for card `44` confirms the Profibagr URL column is returned and populated.
 
@@ -124,6 +136,9 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 
 - Batch run succeeded.
 - Shared competitor pipeline now executes scraper -> analytics ETL -> part-number filter ETL in sequence.
+- Generic analytics ETL now completes against the existing production reporting schema; it created the shared base and variant snapshot tables without modifying legacy Profibagr tables.
+- Filter ETL now completes against the revised coverage view and stored a new filter snapshot.
+- Completed Profibagr full-scope run `bf46f2fd-8137-4657-8f0a-6c782ca28721` is `PARTIAL` because of 128 request errors, but processed all 10,302 input identifiers; its shared analytics snapshot contains 85 ORIGINAL matched products.
 - Last successful CSV: `Sandix/profibagr-scraper/data/raw/profibagr/profibagr_20260828_061800.csv`
 - Latest batch size: 100 search P/N
 - Latest output: 140 CSV rows, 93 OK, 47 NOT_FOUND
@@ -175,6 +190,9 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - The comparison table now exposes the Profibagr product URL as a clickable-looking string column.
 - Profibagr replacement detection is still weak; alternative matching needs separate manual analysis.
 - The shared wrapper is explicit orchestration only; there is still no scheduler or queue-based automation between stages.
+- The older `Sandix - Profibagr analytika` Metabase dashboard still reads legacy `reporting.profibagr_*` objects; shared competitor snapshots are exposed through `reporting.competitor_*` and need the shared dashboard or a dashboard migration.
+- Shared Metabase cards `71` to `73` currently return zero rows because the latest run has no Sandix-alternative versus competitor-alternative intersection; market-average card `64` is intentionally retained for later validation.
+- Provisioning is idempotent for dashboard `5`: it reuses managed cards, updates their queries/layout, and does not create duplicates.
 
 ## Unresolved issues
 
@@ -192,7 +210,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Keep checking for overlap, but prefer moving general context out of `Sandix/docs/DATABASE.md`.
 - Use `analytics-etl/run_competitor_pipeline.py` for a normal one-competitor run; keep direct ETL invocations for debugging only.
 - The new coverage view is the preferred place to answer whether a Sandix alternative PN was searched, missed, or matched as original/alternative in Profibagr.
-- Next step: create the first Metabase dashboard / questions directly on `reporting.profibagr_latest_batch_v`, `reporting.profibagr_latest_price_comparison_v`, and `reporting.profibagr_latest_search_status_v`.
-- Next step: review the Metabase dashboard and decide whether to keep the current layout or add a date/status filter.
+- Validate market-average card `64` after more competitors produce product intersections.
+- Review whether shared cards `71` to `73` should retain their current Sandix-alternative-versus-competitor-alternative definition when intersections become available.
+- Archive duplicate root Metabase dashboard `4` only after confirming dashboard `5` is accepted.
 - Next step: decide when to retire the legacy PoC analytics tables once the new views are accepted.
 - Next step: consider whether rows with no valid competitor price should be surfaced separately as diagnostics instead of being excluded from comparison.

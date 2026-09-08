@@ -196,6 +196,10 @@ FILTER_REVIEW_DDL = [
     GROUP BY 1, 2, 3, 4
     ORDER BY source_domain, row_kind, variant_scope, classification_reason
     """,
+    # The multi-competitor coverage view changes its leading columns, which
+    # PostgreSQL cannot apply through CREATE OR REPLACE VIEW.
+    "DROP VIEW IF EXISTS reporting.part_number_filter_latest_coverage_summary_v",
+    "DROP VIEW IF EXISTS reporting.part_number_filter_latest_coverage_v",
     """
     CREATE OR REPLACE VIEW reporting.part_number_filter_latest_coverage_v AS
     WITH sandix_alternatives AS (

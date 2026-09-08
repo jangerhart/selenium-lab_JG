@@ -79,7 +79,7 @@ def fetch_latest_run(conn: psycopg.Connection, competitor_code: str) -> dict[str
                 finished_at,
                 queue_count
             FROM export.scrape_run_v
-            WHERE status = 'SUCCESS'
+            WHERE status IN ('SUCCESS', 'PARTIAL')
               AND competitor_code = %s
             ORDER BY started_at DESC
             LIMIT 1
@@ -88,7 +88,7 @@ def fetch_latest_run(conn: psycopg.Connection, competitor_code: str) -> dict[str
         )
         row = cur.fetchone()
         if row is None:
-            raise RuntimeError(f"No successful scrape run found for competitor {competitor_code}")
+            raise RuntimeError(f"No completed (SUCCESS/PARTIAL) scrape run found for competitor {competitor_code}")
         columns = [desc.name for desc in cur.description]
     return dict(zip(columns, row))
 
@@ -347,20 +347,20 @@ def write_variant_snapshot(
     generated_at = batch_rows[0]["generated_at"]
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM reporting.competitor_price_comparison WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_variant_price_comparison WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.execute(
-            "DELETE FROM reporting.competitor_search_status WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_variant_search_status WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.execute(
-            "DELETE FROM reporting.competitor_batch_kpi WHERE source_run_id = %s",
+            "DELETE FROM reporting.competitor_variant_batch_kpi WHERE source_run_id = %s",
             (source_run_id,),
         )
         cur.executemany(
             """
-            INSERT INTO reporting.competitor_batch_kpi (
+            INSERT INTO reporting.competitor_variant_batch_kpi (
                 source_run_id,
                 comparison_scope,
                 competitor_code,
@@ -412,10 +412,8 @@ def write_variant_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.competitor_price_comparison (
+            INSERT INTO reporting.competitor_variant_price_comparison (
                 source_run_id,
-                competitor_code,
-                competitor_name,
                 comparison_scope,
                 product_id,
                 sandix_part_number,
@@ -437,14 +435,12 @@ def write_variant_snapshot(
                 search_request_count,
                 generated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             [
                 (
                     source_run_id,
-                    row["competitor_code"],
-                    row["competitor_name"],
                     row["comparison_scope"],
                     row["product_id"],
                     row["sandix_part_number"],
@@ -471,22 +467,18 @@ def write_variant_snapshot(
         )
         cur.executemany(
             """
-            INSERT INTO reporting.competitor_search_status (
+            INSERT INTO reporting.competitor_variant_search_status (
                 source_run_id,
-                competitor_code,
-                competitor_name,
                 comparison_scope,
                 search_status,
                 request_count,
                 request_pct,
                 generated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s)
             """,
             [
                 (
                     source_run_id,
-                    batch_rows[0]["competitor_code"],
-                    batch_rows[0]["competitor_name"],
                     row["comparison_scope"],
                     row["search_status"],
                     row["request_count"],

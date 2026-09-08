@@ -21,10 +21,12 @@ def load_env_file(path: Path) -> dict[str, str]:
 
 
 def build_env(competitor_env_file: str | None) -> dict[str, str]:
-    env = os.environ.copy()
+    shell_env = os.environ.copy()
+    env: dict[str, str] = {}
     env.update(load_env_file(ANALYTICS_DIR / ".env"))
     default_competitor_env = SCRAPER_DIR / ".env"
     env.update(load_env_file(Path(competitor_env_file)) if competitor_env_file else load_env_file(default_competitor_env))
+    env.update(shell_env)
     return env
 
 

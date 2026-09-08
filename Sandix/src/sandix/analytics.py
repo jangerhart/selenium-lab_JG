@@ -154,6 +154,7 @@ ANALYTICS_DDL = [
             source_run_id,
             competitor_code,
             competitor_name,
+            comparison_scope,
             generated_at,
             batch_started_at,
             batch_finished_at,
@@ -309,55 +310,5 @@ ANALYTICS_DDL = [
     FROM latest_rows
     GROUP BY comparison_scope, product_id, sandix_part_number, source_identifier, searched_identifier, product_name
     ORDER BY avg_price_gap_pct_vs_competitor DESC NULLS LAST, avg_price_gap_gross DESC NULLS LAST, product_name
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_batch_kpi AS
-    SELECT *
-    FROM reporting.competitor_batch_kpi
-    WHERE competitor_code = 'PROFIBAGR'
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_price_comparison AS
-    SELECT *
-    FROM reporting.competitor_price_comparison
-    WHERE competitor_code = 'PROFIBAGR'
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_search_status AS
-    SELECT *
-    FROM reporting.competitor_search_status
-    WHERE competitor_code = 'PROFIBAGR'
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_batch_v AS
-    SELECT *
-    FROM reporting.competitor_latest_batch_v
-    WHERE competitor_code = 'PROFIBAGR'
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_price_comparison_v AS
-    SELECT *
-    FROM reporting.competitor_latest_price_comparison_v
-    WHERE competitor_code = 'PROFIBAGR'
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_overpriced_v AS
-    SELECT *
-    FROM reporting.profibagr_latest_price_comparison_v
-    WHERE price_gap_pct_vs_competitor > 0
-    ORDER BY price_gap_pct_vs_competitor DESC NULLS LAST, price_gap_gross DESC NULLS LAST, product_name
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_underpriced_v AS
-    SELECT *
-    FROM reporting.profibagr_latest_price_comparison_v
-    WHERE price_gap_pct_vs_competitor < 0
-    ORDER BY price_gap_pct_vs_competitor ASC NULLS LAST, price_gap_gross ASC NULLS LAST, product_name
-    """,
-    """
-    CREATE OR REPLACE VIEW reporting.profibagr_latest_search_status_v AS
-    SELECT *
-    FROM reporting.competitor_latest_search_status_v
-    WHERE competitor_code = 'PROFIBAGR'
     """,
 ]

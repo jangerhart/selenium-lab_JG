@@ -1,85 +1,144 @@
 # Competitor Scraper
 
-Shared scraper for competitor price monitoring.
+Shared HTTP scraper for competitor price monitoring. The filename remains `profibagr_scraper.py`, but the scraper is configured by environment variables and supports both Profibagr and Bagry ND.
 
-## What it does
+## What It Does
 
-- reads up to 500 search identifiers from PostgreSQL view `scraper.v_search_queue`, then collapses suffix variants to unique base PN before scraping
-- can also run in full-scope mode over all Sandix current identifiers from `core.product_search_identifier_v`
-- searches each part number on the configured competitor site
-- opens product detail pages and extracts key fields
-- writes output into CSV (`;` delimiter, UTF-8)
-- updates `scraper.scrape_run` heartbeat/progress and aborts stale runs on startup
-- writes run log file
-- writes run history and observations into `sandix_price_monitor`
+1. Reads Sandix part numbers from PostgreSQL.
+2. Searches each part number on the configured competitor website.
+3. Stores each scrape run, request, and offer in `sandix_price_monitor`.
+4. Writes a RAW CSV audit file and a log file.
 
-## Setup
+The scraper does not build reporting snapshots. After a raw scraper run, use the shared pipeline wrapper or run the analytics ETL steps separately.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
+## One-Time Setup
 
-Set `.env` with DB credentials and competitor settings. Use read-only user:
-
-`SCRAPER_DB_USER=price_scraper_ro`
-
-Default competitor settings keep Profibagr behavior. For `bagry-nd`, set:
+Run this once from the project root:
 
 ```bash
-COMPETITOR_CODE=BAGRY_ND
-COMPETITOR_NAME=Bagry ND
-BASE_URL=https://www.jcb-nahradni-dily.cz
-SEARCH_PATH=/hledani
-SEARCH_PARAM=query
+cd /tmp/opencode/selenium-lab_JG/Sandix
+python3 -m venv .venv_scraper
+.venv_scraper/bin/pip install -r profibagr-scraper/requirements.txt
+cp profibagr-scraper/.env.example profibagr-scraper/.env
 ```
 
-Optional pacing:
+Fill `profibagr-scraper/.env` with database access. The scraper should use the read-only account:
 
-`REQUEST_DELAY_SECONDS=3`
+```dotenv
+SCRAPER_DB_USER=price_scraper_ro
+```
 
-## Run
+All examples below activate `.venv_scraper`. If it is already active, start from the second line of the relevant block.
 
-Batch run from DB:
+## Scopes
+
+| Scope | Source | Use |
+| --- | --- | --- |
+| `queue` | `scraper.v_search_queue`, at most 5000 source identifiers | Normal recurring run |
+| `full` | All current Sandix identifiers from `core.product_search_identifier_v` | Full coverage run; can take many hours |
+
+Before HTTP requests, suffix variants are collapsed to unique base part numbers. A full run currently resolves to roughly 10,302 unique base identifiers.
+
+## Profibagr
+
+The default `.env` configuration is Profibagr. Copy-paste a normal queue run:
 
 ```bash
-python3 profibagr_scraper.py
+cd /tmp/opencode/selenium-lab_JG/Sandix
+source .venv_scraper/bin/activate
+python3 profibagr-scraper/profibagr_scraper.py --scope queue
 ```
 
-If the current interpreter does not have the dependencies installed, the script auto-reexecs into `.venv_scraper/bin/python` when that venv exists.
-
-Recommended background run:
+Copy-paste a full run in the foreground:
 
 ```bash
-nohup /path/to/.venv_scraper/bin/python profibagr_scraper.py --scope full > logs/run.log 2>&1 &
-tail -f logs/run.log
+cd /tmp/opencode/selenium-lab_JG/Sandix
+source .venv_scraper/bin/activate
+python3 profibagr-scraper/profibagr_scraper.py --scope full
 ```
 
-Full Sandix scope:
+Recommended full run in the background:
 
 ```bash
-python3 profibagr_scraper.py --scope full
+cd /tmp/opencode/selenium-lab_JG/Sandix
+nohup .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --scope full > profibagr-scraper/logs/profibagr_full.log 2>&1 &
+tail -f profibagr-scraper/logs/profibagr_full.log
 ```
 
-This reads all current Sandix identifiers, strips variant suffixes, and searches only unique base PN values.
-
-Manual single part test:
+Test one or more known part numbers before a long run:
 
 ```bash
-python3 profibagr_scraper.py --part-number "980/88215"
+cd /tmp/opencode/selenium-lab_JG/Sandix
+source .venv_scraper/bin/activate
+python3 profibagr-scraper/profibagr_scraper.py --part-number "980/88215" --part-number "32/925895"
 ```
 
-Cron example:
+## Bagry ND
+
+Bagry ND uses the same database credentials from `profibagr-scraper/.env`. The command below overrides only competitor-specific settings, so it can be pasted directly into the activated environment.
+
+Queue run:
 
 ```bash
-PYTHONPATH=src /path/to/.venv_scraper/bin/python profibagr_scraper.py --scope full >> logs/cron_competitor.log 2>&1
+cd /tmp/opencode/selenium-lab_JG/Sandix
+source .venv_scraper/bin/activate
+COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query python3 profibagr-scraper/profibagr_scraper.py --scope queue
 ```
 
-For interactive debugging, prefer `tail -f` on the log file over keeping the scraper attached to the terminal.
+Full run in the background:
 
-## Outputs
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+nohup env COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --scope full > profibagr-scraper/logs/bagry_nd_full.log 2>&1 &
+tail -f profibagr-scraper/logs/bagry_nd_full.log
+```
 
-- CSV: `data/raw/<competitor>/<competitor>_YYYYMMDD_HHMMSS.csv`
-- log: `logs/<competitor>_YYYYMMDD_HHMMSS.log`
+Manual Bagry ND test:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+source .venv_scraper/bin/activate
+COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query python3 profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
+```
+
+For a persistent Bagry ND configuration, create a complete competitor `.env` file with the same database variables as the default `.env`, then run:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE=/absolute/path/to/bagry-nd.env .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --scope queue
+```
+
+## After The Scraper
+
+For a manual scraper run, wait for it to finish. A `SUCCESS` run is complete without request errors; a `PARTIAL` run processed all inputs but had some request errors. Both are included by the analytics ETL. Do not run analytics for `ABORTED` runs.
+
+Run the two reporting steps for Profibagr:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix/analytics-etl
+../.venv_scraper/bin/python analytics_etl.py
+../.venv_scraper/bin/python part_number_filter_etl.py
+```
+
+For the next scheduled run, prefer the pipeline wrapper instead of launching the three stages manually:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+.venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
+```
+
+For Bagry ND, add the same inline competitor variables from the Bagry ND examples before `.venv_scraper/bin/python`.
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
+```
+
+## Outputs And Monitoring
+
+- CSV: `profibagr-scraper/data/raw/<competitor>/<competitor>_YYYYMMDD_HHMMSS.csv`
+- Per-run log: `profibagr-scraper/logs/<competitor>_YYYYMMDD_HHMMSS.log`
+- Background command log: the explicit `profibagr_full.log` or `bagry_nd_full.log` path in the command above
+- DB state: `sandix_price_monitor.scraper.scrape_run`, `search_request`, and `offer_observation`
+
+For a background run, use `tail -f` on its explicit log file. The final log line and database run status distinguish `SUCCESS`, `PARTIAL`, and `ABORTED`.

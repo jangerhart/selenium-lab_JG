@@ -91,7 +91,7 @@ def fetch_latest_successful_scrape_run(conn: psycopg.Connection, competitor_code
             """
             SELECT run_id, competitor_code, competitor_name, started_at, finished_at
             FROM export.scrape_run_v
-            WHERE status = 'SUCCESS'
+            WHERE status IN ('SUCCESS', 'PARTIAL')
               AND competitor_code = %s
             ORDER BY started_at DESC
             LIMIT 1
@@ -100,7 +100,7 @@ def fetch_latest_successful_scrape_run(conn: psycopg.Connection, competitor_code
         )
         row = cur.fetchone()
         if row is None:
-            raise RuntimeError(f"No successful scrape run found for competitor {competitor_code}")
+            raise RuntimeError(f"No completed (SUCCESS/PARTIAL) scrape run found for competitor {competitor_code}")
         columns = [desc.name for desc in cur.description]
     return dict(zip(columns, row))
 
