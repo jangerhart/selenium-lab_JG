@@ -62,6 +62,33 @@ COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nah
 
 After both commands succeed, dashboard `5` shows Bagry ND in the shared competitor cards alongside Profibagr.
 
+## Profimachinery, Dílybagru, And Strojparts
+
+Website configurations are in `profibagr-scraper/competitors/`. They contain no database credentials and work with the standard `analytics-etl/.env` plus `profibagr-scraper/.env` files.
+
+After a manual scrape, use the matching configuration for both ETL steps. Example for Dílybagru:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix/analytics-etl
+COMPETITOR_ENV_FILE="$PWD/../profibagr-scraper/competitors/dilybagru.env.example" ../.venv_scraper/bin/python analytics_etl.py
+COMPETITOR_ENV_FILE="$PWD/../profibagr-scraper/competitors/dilybagru.env.example" ../.venv_scraper/bin/python part_number_filter_etl.py
+```
+
+Replace `dilybagru.env.example` with one of:
+
+- `profi_machinery.env.example`
+- `strojparts.env.example`
+- `bagry_nd.env.example`
+
+Pipeline example for Strojparts:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/strojparts.env.example" .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
+```
+
+Strojparts may return products without a public price. The scraper records those results, but analytics excludes missing or zero competitor prices from price-gap comparisons.
+
 ## Preferred: Run The Whole Pipeline
 
 The wrapper stops immediately if a prior stage fails. It avoids running analytics against an unfinished scrape.
@@ -87,13 +114,18 @@ cd /tmp/opencode/selenium-lab_JG/Sandix
 COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
 ```
 
-Bagry ND full run in the background:
+Other competitors in the background:
+
+Use the competitor configuration file instead of the Profibagr default. This runs scraper, analytics ETL, and filter ETL in that order. The example below is for Bagry ND; replace `bagry_nd.env.example` with `profi_machinery.env.example`, `dilybagru.env.example`, or `strojparts.env.example` as needed.
 
 ```bash
 cd /tmp/opencode/selenium-lab_JG/Sandix
-nohup env COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope full > profibagr-scraper/logs/bagry_nd_pipeline_full.log 2>&1 &
-tail -f profibagr-scraper/logs/bagry_nd_pipeline_full.log
+mkdir -p analytics-etl/logs
+nohup env COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/bagry_nd.env.example" .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue > analytics-etl/logs/bagry_nd_pipeline_queue.log 2>&1 &
+tail -f analytics-etl/logs/bagry_nd_pipeline_queue.log
 ```
+
+For a full run, replace `--scope queue` with `--scope full` and use a separate log filename.
 
 If a scraper was already run manually, use the wrapper without launching another scrape:
 
@@ -102,7 +134,7 @@ cd /tmp/opencode/selenium-lab_JG/Sandix
 .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --skip-scraper
 ```
 
-For Bagry ND, prepend the same five `COMPETITOR_*`, `BASE_URL`, `SEARCH_PATH`, and `SEARCH_PARAM` variables as in the Bagry ND examples.
+For a competitor other than Profibagr, prepend `COMPETITOR_ENV_FILE` with the matching configuration file, as in the background example above.
 
 ## Metabase Dashboard
 

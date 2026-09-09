@@ -13,6 +13,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `price_scraper_ro` exists and is the scraper read-only role.
 - Profibagr scraping works over HTTP without JavaScript.
 - `bagry-nd` now runs against `https://www.jcb-nahradni-dily.cz` with the same shared scraper and ETL layer.
+- Shared scraper now also supports `PROFI_MACHINERY` (`https://www.profimachinery.cz`), `DILYBAGRU` (`https://www.dilybagru.cz`), and `STROJPARTS` (`https://www.strojparts.cz`).
+- Profimachinery uses the shared Upgates HTML parser, Dílybagru uses WooCommerce HTML selectors with 21% VAT net-price derivation, and Strojparts uses its public JSON API.
 - The scraper queue is now competitor-agnostic and the full pipeline is driven by `COMPETITOR_CODE`.
 - `Sandix/docs/DATABASE.md` now contains the target database design.
 - `Sandix/docs/DATABASE.md` was trimmed to avoid duplicating project-wide principles from `Sandix/docs/PROJECT_CONTEXT.md`.
@@ -83,6 +85,10 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/pohoda-etl/pohoda_etl.py`
 - `Sandix/profibagr-scraper/README.md`
 - `Sandix/profibagr-scraper/profibagr_scraper.py`
+- `Sandix/profibagr-scraper/competitors/bagry_nd.env.example`
+- `Sandix/profibagr-scraper/competitors/profi_machinery.env.example`
+- `Sandix/profibagr-scraper/competitors/dilybagru.env.example`
+- `Sandix/profibagr-scraper/competitors/strojparts.env.example`
 - `Sandix/README.md`
 - `Sandix/sitecustomize.py`
 - `Sandix/src/sandix/analytics.py`
@@ -129,6 +135,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `python analytics-etl/analytics_etl.py` and `python analytics-etl/part_number_filter_etl.py` against completed full-scope Profibagr run `bf46f2fd-8137-4657-8f0a-6c782ca28721`
 - Metabase provisioning verification through `POST /api/agent/v1/question/{id}/query` for cards `62` to `73`
 - `python -m unittest tests.test_analytics tests.test_part_numbers`
+- Three end-to-end scraper smoke runs through `COMPETITOR_ENV_FILE` for `PROFI_MACHINERY`, `DILYBAGRU`, and `STROJPARTS` using `32/925895`
+- Synthetic parser smoke test for WooCommerce result/detail parsing and Strojparts API parsing
 - Metabase query checks via `POST /api/agent/v1/question/{id}/query` for cards `42` to `46`
 - Metabase query check for card `44` confirms the Profibagr URL column is returned and populated.
 
@@ -193,6 +201,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - The older `Sandix - Profibagr analytika` Metabase dashboard still reads legacy `reporting.profibagr_*` objects; shared competitor snapshots are exposed through `reporting.competitor_*` and need the shared dashboard or a dashboard migration.
 - Shared Metabase cards `71` to `73` currently return zero rows because the latest run has no Sandix-alternative versus competitor-alternative intersection; market-average card `64` is intentionally retained for later validation.
 - Provisioning is idempotent for dashboard `5`: it reuses managed cards, updates their queries/layout, and does not create duplicates.
+- New competitor smoke runs completed successfully and registered the competitor rows in `scraper.competitor`; Strojparts returned its sample product without a public price, which is correctly excluded from price-gap metrics.
 
 ## Unresolved issues
 

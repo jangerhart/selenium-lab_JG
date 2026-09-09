@@ -385,13 +385,15 @@ def print_preview(rows: list[dict[str, object]], source_domain: str) -> None:
 
 
 def main() -> int:
+    shell_env = os.environ.copy()
     load_dotenv(Path(__file__).resolve().parent / ".env")
     competitor_code = os.getenv("COMPETITOR_CODE") or DEFAULT_COMPETITOR_CODE
     competitor_env_file = os.getenv("COMPETITOR_ENV_FILE")
     if competitor_env_file:
-        load_dotenv(competitor_env_file)
+        load_dotenv(competitor_env_file, override=True)
     elif competitor_code == DEFAULT_COMPETITOR_CODE:
         load_dotenv(Path(__file__).resolve().parent.parent / "profibagr-scraper" / ".env")
+    os.environ.update(shell_env)
     competitor_code = os.getenv("COMPETITOR_CODE") or competitor_code
     competitor_name = os.getenv("COMPETITOR_NAME") or DEFAULT_COMPETITOR_NAME
 

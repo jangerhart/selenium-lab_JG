@@ -1,6 +1,6 @@
 # Competitor Scraper
 
-Shared HTTP scraper for competitor price monitoring. The filename remains `profibagr_scraper.py`, but the scraper is configured by environment variables and supports both Profibagr and Bagry ND.
+Shared HTTP scraper for competitor price monitoring. The filename remains `profibagr_scraper.py`, but the scraper is configured by environment variables and supports Profibagr, Bagry ND, Profimachinery, Dílybagru, and Strojparts.
 
 ## What It Does
 
@@ -29,6 +29,18 @@ SCRAPER_DB_USER=price_scraper_ro
 ```
 
 All examples below activate `.venv_scraper`. If it is already active, start from the second line of the relevant block.
+
+## Available Competitors
+
+| Code | Website | Configuration file |
+| --- | --- | --- |
+| `PROFIBAGR` | `https://www.profibagr.cz` | default `profibagr-scraper/.env` |
+| `BAGRY_ND` | `https://www.jcb-nahradni-dily.cz` | `competitors/bagry_nd.env.example` |
+| `PROFI_MACHINERY` | `https://www.profimachinery.cz` | `competitors/profi_machinery.env.example` |
+| `DILYBAGRU` | `https://www.dilybagru.cz` | `competitors/dilybagru.env.example` |
+| `STROJPARTS` | `https://www.strojparts.cz` | `competitors/strojparts.env.example` |
+
+Competitor files contain only website-specific settings. The scraper always loads database access from `profibagr-scraper/.env` first, then applies the selected competitor file.
 
 ## Scopes
 
@@ -101,12 +113,48 @@ source .venv_scraper/bin/activate
 COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nahradni-dily.cz SEARCH_PATH=/hledani SEARCH_PARAM=query python3 profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
 ```
 
-For a persistent Bagry ND configuration, create a complete competitor `.env` file with the same database variables as the default `.env`, then run:
+For a persistent Bagry ND configuration, create a competitor `.env` file with its website settings, then run:
 
 ```bash
 cd /tmp/opencode/selenium-lab_JG/Sandix
 COMPETITOR_ENV_FILE=/absolute/path/to/bagry-nd.env .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --scope queue
 ```
+
+## Profimachinery, Dílybagru, And Strojparts
+
+All three use a checked-in website configuration template. The following commands run a one-part smoke test without modifying your default Profibagr `.env`.
+
+Profimachinery:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/profi_machinery.env.example" .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
+```
+
+Dílybagru:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/dilybagru.env.example" .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
+```
+
+Strojparts:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/strojparts.env.example" .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
+```
+
+Normal queue run for any of these competitors uses the same command with `--scope queue` instead of `--part-number`.
+
+Use the full sequential pipeline after the smoke test passes. Example for Dílybagru:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/dilybagru.env.example" .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
+```
+
+Dílybagru publishes its product prices with VAT only; the scraper derives net price using Czech 21% VAT. Strojparts uses a JSON API and may return a product with no public price. Such zero/missing prices are stored for audit but excluded from price-gap reporting.
 
 ## After The Scraper
 

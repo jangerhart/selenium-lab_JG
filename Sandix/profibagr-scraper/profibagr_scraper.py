@@ -42,7 +42,11 @@ from sandix.part_numbers import dedupe_part_numbers_by_base  # noqa: E402
 
 
 SCRAPER_ENV_FILE = os.getenv("COMPETITOR_ENV_FILE")
-load_dotenv(SCRAPER_ENV_FILE or Path(__file__).resolve().parent / ".env")
+SHELL_ENV = os.environ.copy()
+load_dotenv(Path(__file__).resolve().parent / ".env")
+if SCRAPER_ENV_FILE:
+    load_dotenv(SCRAPER_ENV_FILE, override=True)
+os.environ.update(SHELL_ENV)
 
 
 COMPETITOR_CODE = os.getenv("COMPETITOR_CODE") or "PROFIBAGR"
@@ -50,6 +54,8 @@ COMPETITOR_NAME = os.getenv("COMPETITOR_NAME") or "Profibagr"
 BASE_URL = os.getenv("BASE_URL") or "https://www.profibagr.cz"
 SEARCH_PATH = os.getenv("SEARCH_PATH") or "/search"
 SEARCH_PARAM = os.getenv("SEARCH_PARAM") or "phrase"
+SCRAPER_MODE = os.getenv("SCRAPER_MODE") or "HTML"
+SEARCH_EXTRA_PARAMS = json.loads(os.getenv("SEARCH_EXTRA_PARAMS") or "{}")
 COMPETITOR_SLUG = re.sub(r"[^a-z0-9]+", "_", COMPETITOR_CODE.lower()).strip("_") or "competitor"
 
 
@@ -567,6 +573,15 @@ def parse_search_product_urls(html: str) -> list[str]:
             if href:
                 urls.append(urljoin(BASE_URL, href))
 
+    if not urls:
+        for card in soup.select(".products > .product-small.product"):
+            anchor = card.select_one(".product-title a[href]") or card.select_one("a[href]")
+            if not anchor:
+                continue
+            href = anchor.get("href", "").strip()
+            if href:
+                urls.append(urljoin(BASE_URL, href))
+
     # fallback when card structure changes
     if not urls:
         for anchor in soup.select("a[href]"):
@@ -605,7 +620,45 @@ def extract_availability_raw(soup: BeautifulSoup) -> str:
     if availability:
         return " ".join(availability.get_text(" ", strip=True).split())
 
+    product = soup.select_one(".product")
+    if product and "instock" in product.get("class", []):
+        return "In stock"
+
     return ""
+
+
+def extract_part_number_from_text(value: str) -> str:
+    match = re.search(r"\b[A-Z0-9]{1,8}/[A-Z0-9][A-Z0-9/-]*\b", value.upper())
+    return match.group(0) if match else ""
+
+
+def extract_json_ld_product(soup: BeautifulSoup) -> dict[str, Any]:
+    def walk(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, dict):
+            items = [value]
+            for child in value.values():
+                items.extend(walk(child))
+            return items
+        if isinstance(value, list):
+            items: list[dict[str, Any]] = []
+            for child in value:
+                items.extend(walk(child))
+            return items
+        return []
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        raw_value = script.string or script.get_text()
+        if not raw_value:
+            continue
+        try:
+            payload = json.loads(raw_value)
+        except json.JSONDecodeError:
+            continue
+        for item in walk(payload):
+            item_type = item.get("@type")
+            if item_type == "Product" or (isinstance(item_type, list) and "Product" in item_type):
+                return item
+    return {}
 
 
 def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
@@ -613,13 +666,29 @@ def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
     upgates = parse_upgates_json(html) or {}
     upgates_product = upgates.get("product") or {}
     upgates_price = upgates_product.get("price") or {}
+    json_ld_product = extract_json_ld_product(soup)
+    json_ld_offer = json_ld_product.get("offers") or {}
+    if isinstance(json_ld_offer, list):
+        json_ld_offer = next((offer for offer in json_ld_offer if isinstance(offer, dict)), {})
+    if not isinstance(json_ld_offer, dict):
+        json_ld_offer = {}
+    json_ld_price = json_ld_offer.get("priceSpecification") or json_ld_offer
+    if not isinstance(json_ld_price, dict):
+        json_ld_price = {}
 
-    product_name = upgates_product.get("title")
+    product_name = upgates_product.get("title") or json_ld_product.get("name")
     if not product_name:
-        h1 = soup.select_one("h1")
+        h1 = soup.select_one(".product_title") or soup.select_one("h1")
         product_name = h1.get_text(" ", strip=True) if h1 else ""
 
-    found_part_number = extract_oem_from_detail(soup) or str(upgates_product.get("code", ""))
+    found_part_number = extract_oem_from_detail(soup) or str(upgates_product.get("code", "")) or str(
+        json_ld_product.get("productID") or json_ld_product.get("sku") or ""
+    )
+    if not found_part_number:
+        found_part_number = extract_part_number_from_text(product_name)
+    if not found_part_number:
+        sku = soup.select_one(".product_meta .sku")
+        found_part_number = sku.get_text(" ", strip=True) if sku else ""
 
     without_vat = None
     with_vat = None
@@ -644,8 +713,18 @@ def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
             else None
         )
 
-    currency = upgates.get("currency") or "CZK"
-    availability_raw = extract_availability_raw(soup)
+    json_ld_price_value = json_ld_price.get("price") if isinstance(json_ld_price, dict) else None
+    if with_vat is None and json_ld_price_value is not None:
+        with_vat = parse_price_decimal(str(json_ld_price_value))
+
+    woo_gross_price = soup.select_one(".product-page-price .woocommerce-Price-amount.amount")
+    if with_vat is None and woo_gross_price:
+        with_vat = parse_price_decimal(woo_gross_price.get_text(" ", strip=True))
+    if without_vat is None and with_vat is not None:
+        without_vat = (with_vat / Decimal("1.21")).quantize(Decimal("0.01"))
+
+    currency = upgates.get("currency") or json_ld_price.get("priceCurrency") or "CZK"
+    availability_raw = extract_availability_raw(soup) or str(json_ld_offer.get("availability") or "")
 
     return {
         "found_part_number": found_part_number,
@@ -656,6 +735,87 @@ def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
         "availability_raw": availability_raw,
         "product_url": product_url,
     }
+
+
+def parse_strojparts_search_response(
+    payload: Any,
+    run_id: str,
+    search_part_number: str,
+    scraped_at: str,
+    http_status: int,
+) -> FetchResult:
+    if not isinstance(payload, list):
+        return FetchResult(
+            status="UNEXPECTED_RESPONSE",
+            match_count=0,
+            rows=[
+                status_row(
+                    run_id,
+                    search_part_number,
+                    "UNEXPECTED_RESPONSE",
+                    0,
+                    scraped_at,
+                    http_status=http_status,
+                    error_type="UNEXPECTED_RESPONSE",
+                    error_message="Strojparts API did not return a product list.",
+                )
+            ],
+        )
+
+    if not payload:
+        return FetchResult(
+            status="NOT_FOUND",
+            match_count=0,
+            rows=[status_row(run_id, search_part_number, "NOT_FOUND", 0, scraped_at, http_status=http_status)],
+        )
+
+    rows: list[dict[str, Any]] = []
+    for product in payload:
+        if not isinstance(product, dict):
+            continue
+        gross_price = Decimal(str(product.get("sellingPrice") or 0)).quantize(Decimal("0.01"))
+        net_price = (gross_price / Decimal("1.21")).quantize(Decimal("0.01")) if gross_price > 0 else None
+        product_id = product.get("id")
+        product_path = str(product.get("path") or "").strip("/")
+        product_url = urljoin(BASE_URL, f"/product/{product_id}/{product_path}") if product_id else BASE_URL
+        found_part_number = str(product.get("oemCode") or product.get("note") or product.get("code") or "")
+        rows.append(
+            {
+                "run_id": run_id,
+                "scraped_at": scraped_at,
+                "search_part_number": search_part_number,
+                "status": "OK",
+                "match_count": len(payload),
+                "found_part_number": found_part_number,
+                "product_name": str(product.get("name") or ""),
+                "price_without_vat": decimal_to_str(net_price),
+                "price_with_vat": decimal_to_str(gross_price) if gross_price > 0 else "",
+                "currency": "CZK",
+                "availability_raw": str(product.get("availability") or product.get("stockCount") or ""),
+                "product_url": product_url,
+                "http_status": http_status,
+                "error_type": "",
+                "error_message": "",
+            }
+        )
+
+    return FetchResult(
+        status="OK" if rows else "UNEXPECTED_RESPONSE",
+        match_count=len(payload),
+        rows=rows
+        or [
+            status_row(
+                run_id,
+                search_part_number,
+                "UNEXPECTED_RESPONSE",
+                0,
+                scraped_at,
+                http_status=http_status,
+                error_type="UNEXPECTED_RESPONSE",
+                error_message="Strojparts API returned no valid product records.",
+            )
+        ],
+    )
 
 
 def status_row(
@@ -697,7 +857,9 @@ def scrape_part_number(
     logger.info("SEARCH: %s", search_part_number)
 
     try:
-        response = client.get(SEARCH_PATH, params={SEARCH_PARAM: search_part_number})
+        search_params = {str(key): str(value) for key, value in SEARCH_EXTRA_PARAMS.items()}
+        search_params[SEARCH_PARAM] = search_part_number
+        response = client.get(SEARCH_PATH, params=search_params)
     except httpx.TimeoutException as exc:
         logger.error("TIMEOUT: %s", search_part_number)
         return FetchResult(
@@ -770,6 +932,43 @@ def scrape_part_number(
                 )
             ],
         )
+
+    if SCRAPER_MODE == "STROJPARTS_API":
+        try:
+            result = parse_strojparts_search_response(
+                response.json(),
+                run_id,
+                search_part_number,
+                scraped_at,
+                response.status_code,
+            )
+        except json.JSONDecodeError:
+            result = FetchResult(
+                status="UNEXPECTED_RESPONSE",
+                match_count=0,
+                rows=[
+                    status_row(
+                        run_id,
+                        search_part_number,
+                        "UNEXPECTED_RESPONSE",
+                        0,
+                        scraped_at,
+                        http_status=response.status_code,
+                        error_type="UNEXPECTED_RESPONSE",
+                        error_message="Strojparts API did not return JSON.",
+                    )
+                ],
+            )
+        logger.info("RESULT COUNT: %s for %s", result.match_count, search_part_number)
+        for row in result.rows:
+            if row.get("status") != "OK":
+                continue
+            logger.info("PRODUCT URL: %s", row["product_url"])
+            logger.info("PRICE: %s / %s", row["price_without_vat"], row["price_with_vat"])
+            strict_match = normalize_part_number(search_part_number) in normalize_part_number(row["found_part_number"])
+            loose_match = normalize_part_number_loose(search_part_number) in normalize_part_number_loose(row["found_part_number"])
+            logger.info("MATCH INFO: strict=%s loose=%s found=%s", strict_match, loose_match, row["found_part_number"])
+        return result
 
     product_urls = parse_search_product_urls(response.text)
     logger.info("RESULT COUNT: %s for %s", len(product_urls), search_part_number)
