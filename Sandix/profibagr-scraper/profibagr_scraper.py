@@ -681,11 +681,11 @@ def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
         h1 = soup.select_one(".product_title") or soup.select_one("h1")
         product_name = h1.get_text(" ", strip=True) if h1 else ""
 
-    found_part_number = extract_oem_from_detail(soup) or str(upgates_product.get("code", "")) or str(
-        json_ld_product.get("productID") or json_ld_product.get("sku") or ""
-    )
+    found_part_number = extract_oem_from_detail(soup) or str(upgates_product.get("code", ""))
     if not found_part_number:
         found_part_number = extract_part_number_from_text(product_name)
+    if not found_part_number:
+        found_part_number = str(json_ld_product.get("productID") or json_ld_product.get("sku") or "")
     if not found_part_number:
         sku = soup.select_one(".product_meta .sku")
         found_part_number = sku.get_text(" ", strip=True) if sku else ""
