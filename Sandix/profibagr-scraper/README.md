@@ -190,3 +190,31 @@ COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nah
 - DB state: `sandix_price_monitor.scraper.scrape_run`, `search_request`, and `offer_observation`
 
 For a background run, use `tail -f` on its explicit log file. The final log line and database run status distinguish `SUCCESS`, `PARTIAL`, and `ABORTED`.
+
+## Find And Stop Running Processes
+
+Find all active scraper and pipeline processes:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+pgrep -af 'profibagr_scraper.py|run_competitor_pipeline.py|analytics_etl.py|part_number_filter_etl.py'
+```
+
+Stop a standalone scraper with its PID:
+
+```bash
+kill -TERM <scraper_pid>
+```
+
+When the scraper was launched through `run_competitor_pipeline.py`, stop both the pipeline PID and its active scraper PID. This prevents the pipeline from continuing with ETL or another scraper after the current run exits:
+
+```bash
+kill -TERM <pipeline_pid> <scraper_pid>
+```
+
+The scraper handles `SIGTERM` by marking the active database run as `ABORTED`. Wait a few seconds, then confirm that no process remains:
+
+```bash
+sleep 3
+pgrep -af 'profibagr_scraper.py|run_competitor_pipeline.py|analytics_etl.py|part_number_filter_etl.py'
+```
