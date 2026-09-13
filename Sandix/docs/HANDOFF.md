@@ -1,6 +1,6 @@
 # Current project state
 
-Last updated: 2026-09-08
+Last updated: 2026-09-13
 
 ## Current objective
 
@@ -38,6 +38,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Metabase dashboard `Sandix - Profibagr analytika` now also contains a second block of cards for the alternative-vs-alternative scope.
 - Profibagr scrape queue now uses base PN again for search input; suffix variants are preserved only for display and classification.
 - Profibagr scraper now supports `--scope full`, which reads all Sandix current identifiers from `core.product_search_identifier_v` instead of the filtered queue.
+- `core.product_search_identifier_v` now splits multi-value POHODA `IDS` fields into individual part-number tokens before queue and full-scope processing.
+- `scraper.competitor_latest_not_found_v` exposes individual `NOT_FOUND` search requests from the latest reportable run of each competitor; Metabase card `75` displays the view.
 - New analytics view `reporting.part_number_filter_latest_coverage_v` tracks `NOT_SEARCHED`, `NOT_FOUND`, `FOUND_ORIGINAL_ONLY`, `FOUND_ALTERNATIVE`, and `FOUND_BOTH` for Sandix alternative PN.
 - Metabase now has card `57` for Sandix alternative coverage and card `56` for Sandix ALTERNATIVE vs Profibagr ALTERNATIVE comparison.
 - Metabase dashboard `Sandix - Profibagr analytika` is now set to `width=full` and the cards are stacked in a single full-width column to minimize horizontal scrolling.
@@ -58,7 +60,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Current eligibility queue in `scraper.v_search_queue` contains 1,412 search identifiers.
 - Profibagr full batch against the production queue completed successfully with 500 search identifiers processed.
 - Latest base-PN Profibagr scrape run completed successfully with `1,252` queued identifiers before the queue was reverted to base identifiers.
-- Full-scope source currently resolves to `25,429` current Sandix product rows and about `10,302` unique base search identifiers after suffix-base collapse.
+- Full-scope source currently resolves to `25,429` current Sandix product rows, `35,292` individual search-identifier tokens, and about `10,302` unique base search identifiers after suffix-base collapse.
 - First usable analytics snapshot tables and latest views now exist in `sandix_price_analytics.reporting`.
 
 ## Files changed
@@ -105,6 +107,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Existing objects referenced in this work: `scraper.v_profibagr_input`, `scraper.v_profibagr_search_queue`, `price_scraper_ro`
 - Changed in `sandix_price_monitor`: `etl.pohoda_sync_run`, `source_pohoda.stock_current`, `core.product`, `core.own_price_history`, `core.product_identifier`, `scraper.competitor`, `scraper.scrape_run`, `scraper.search_request`, `scraper.search_request_product`, `scraper.offer_observation`
 - Changed in `sandix_price_monitor`: `core.product_current_v`, `core.product_search_identifier_v`, `scraper.v_search_queue`, `export.product_current_v`, `export.own_price_history_v`, `export.competitor_offer_history_v`, `export.scrape_run_v`
+- Changed in `sandix_price_monitor`: `scraper.competitor_latest_not_found_v`
 - Changed in `sandix_price_analytics`: schemas `mart`, `dim`, `fact`, `reporting`; legacy Profibagr reporting objects plus shared `reporting.competitor_*`, `reporting.competitor_variant_*`, and `reporting.part_number_filter_*` reporting tables/views
 
 ## Tests executed
@@ -139,6 +142,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Synthetic parser smoke test for WooCommerce result/detail parsing and Strojparts API parsing
 - Metabase query checks via `POST /api/agent/v1/question/{id}/query` for cards `42` to `46`
 - Metabase query check for card `44` confirms the Profibagr URL column is returned and populated.
+- `python -m unittest discover -s tests` after tokenizing POHODA `IDS` values in `core.product_search_identifier_v`
+- PostgreSQL check of product `21294` confirms `332/G8146a 128/11789a 400/V8268a` resolves to three individual search identifiers.
 
 ## Results
 
@@ -202,12 +207,14 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Shared Metabase cards `71` to `73` currently return zero rows because the latest run has no Sandix-alternative versus competitor-alternative intersection; market-average card `64` is intentionally retained for later validation.
 - Provisioning is idempotent for dashboard `5`: it reuses managed cards, updates their queries/layout, and does not create duplicates.
 - New competitor smoke runs completed successfully and registered the competitor rows in `scraper.competitor`; Strojparts returned its sample product without a public price, which is correctly excluded from price-gap metrics.
+- Multi-value POHODA `IDS` values are no longer concatenated into invalid scraper search terms; spaces, commas, semicolons, and `|` separate individual part numbers in `core.product_search_identifier_v`.
+- Metabase card `75` (`Konkurenti - nenalezené PN`) reads `scraper.competitor_latest_not_found_v` and returns per-PN `NOT_FOUND` rows for each competitor's latest reportable run.
 
 ## Unresolved issues
 
 - `skz_transformed_v` still emits standalone punctuation for some queue rows.
 - Its other consumers still need to be understood before changing that view.
-- `scraper.v_search_queue` currently uses `ids` as the initial generic search identifier placeholder; legacy transformation logic still needs to be migrated carefully.
+- Legacy transformation logic outside `core.product_search_identifier_v` still needs to be reviewed before it is changed.
 - The legacy PoC analytics tables `reporting.profibagr_batch_summary` and `reporting.profibagr_price_gap` still exist; the new ETL does not use them.
 - Profibagr replacement detection still needs investigation before treating `ALTERNATIVE` classification as trustworthy.
 

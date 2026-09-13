@@ -51,6 +51,55 @@ Competitor files contain only website-specific settings. The scraper always load
 
 Before HTTP requests, suffix variants are collapsed to unique base part numbers. A full run currently resolves to roughly 10,302 unique base identifiers.
 
+## How Search Identifiers Are Prepared
+
+The scraper does not search the raw POHODA `IDS` value directly. Identifiers pass through these stages:
+
+1. `source_pohoda.stock_current.ids` stores the raw `IDS` value imported from POHODA.
+2. `core.product_search_identifier_v` splits each raw value into individual tokens separated by whitespace, comma, semicolon, or `|`. This view is the source for `--scope full`.
+3. `scraper.v_search_queue` selects eligible tokens from the same view for `--scope queue`; it filters to web-enabled products with available stock and removes duplicate normalized tokens. It does not remove replacement suffixes.
+4. At scraper startup, `fetch_part_numbers_from_db()` loads active suffixes from `sandix_price_analytics.reporting.variant_suffix_catalog_v` and calls `dedupe_part_numbers_by_base()`.
+5. `dedupe_part_numbers_by_base()` removes configured replacement suffixes and deduplicates the resulting base PN. This in-memory list is the final input sent to competitor websites.
+
+For example, the raw POHODA value:
+
+```text
+332/G8146a 128/11789a 400/V8268a
+```
+
+produces three individual search tokens:
+
+```text
+332/G8146A
+128/11789A
+400/V8268A
+```
+
+Suffix variants are then collapsed before the HTTP request. For example:
+
+```text
+02/100284AB
+02/100284AD
+02/100284AH
+```
+
+produce one final search request:
+
+```text
+02/100284
+```
+
+The final suffix-cleaned list is intentionally not materialized in `scraper.v_search_queue`; it exists only while the scraper runs. After a run starts, the exact values sent to the competitor are stored in `scraper.search_request.searched_identifier`.
+
+```sql
+SELECT searched_identifier, status, requested_at
+FROM scraper.search_request
+WHERE run_id = '<run_uuid>'
+ORDER BY search_request_id;
+```
+
+`core.product_search_identifier_v` and `scraper.v_search_queue` are dynamic PostgreSQL views. A newly started run reads their current tokenized values, while a run that is already in progress keeps the input list that it loaded at startup.
+
 ## Profibagr
 
 The default `.env` configuration is Profibagr. Copy-paste a normal queue run:

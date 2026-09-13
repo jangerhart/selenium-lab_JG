@@ -238,12 +238,13 @@ MONITOR_DDL = [
     CREATE OR REPLACE VIEW core.product_search_identifier_v AS
     SELECT
         product_id,
-        ids AS source_identifier,
-        btrim(upper(ids)) AS search_identifier,
-        regexp_replace(btrim(upper(ids)), '[\\s-]', '', 'g') AS search_identifier_normalized,
+        btrim(token.source_identifier) AS source_identifier,
+        btrim(upper(token.source_identifier)) AS search_identifier,
+        regexp_replace(btrim(upper(token.source_identifier)), '[\\s-]', '', 'g') AS search_identifier_normalized,
         'CURRENT_IDS'::text AS transformation_type
     FROM core.product_current_v
-    WHERE ids IS NOT NULL AND btrim(ids) <> ''
+    CROSS JOIN LATERAL regexp_split_to_table(btrim(ids), '[\\s;,|]+') AS token(source_identifier)
+    WHERE btrim(token.source_identifier) <> ''
     """,
     """
     CREATE OR REPLACE VIEW scraper.v_search_queue AS
@@ -258,6 +259,40 @@ MONITOR_DDL = [
     WHERE COALESCE(c.web_enabled, false) = true
       AND COALESCE(c.available_quantity, 0) > 0
     ORDER BY psi.search_identifier_normalized, psi.product_id
+    """,
+    """
+    CREATE OR REPLACE VIEW scraper.competitor_latest_not_found_v AS
+    WITH latest_runs AS (
+        SELECT DISTINCT ON (c.competitor_code)
+            r.run_id,
+            c.competitor_code,
+            c.competitor_name,
+            r.started_at AS run_started_at,
+            r.finished_at AS run_finished_at
+        FROM scraper.scrape_run r
+        JOIN scraper.competitor c ON c.competitor_id = r.competitor_id
+        WHERE r.status IN ('SUCCESS', 'PARTIAL')
+        ORDER BY c.competitor_code, r.started_at DESC, r.run_id DESC
+    )
+    SELECT
+        lr.competitor_code,
+        lr.competitor_name,
+        lr.run_id,
+        lr.run_started_at,
+        lr.run_finished_at,
+        sr.search_request_id,
+        sr.searched_identifier,
+        sr.searched_identifier_norm,
+        sr.requested_at,
+        sr.completed_at,
+        sr.match_count,
+        sr.http_status,
+        sr.error_type,
+        sr.error_message
+    FROM latest_runs lr
+    JOIN scraper.search_request sr ON sr.run_id = lr.run_id
+    WHERE sr.status = 'NOT_FOUND'
+    ORDER BY lr.competitor_code, sr.searched_identifier, sr.search_request_id
     """,
     """
     CREATE OR REPLACE VIEW export.product_current_v AS
