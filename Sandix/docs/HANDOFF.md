@@ -14,6 +14,8 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Profibagr scraping works over HTTP without JavaScript.
 - `bagry-nd` now runs against `https://www.jcb-nahradni-dily.cz` with the same shared scraper and ETL layer.
 - Shared scraper now also supports `PROFI_MACHINERY` (`https://www.profimachinery.cz`), `DILYBAGRU` (`https://www.dilybagru.cz`), and `STROJPARTS` (`https://www.strojparts.cz`).
+- Shared scraper now also supports `B2B_COGITO` (`https://b2bcogito.com`) through its public AtomStore search and product detail pages.
+- B2B Cogito uses no proxy rotation: it waits five seconds between part-number searches, retries `403`/`429`/`503`/CAPTCHA responses after 60 then 120 seconds, and ends the run as `BLOCKED` if protection remains active.
 - Profimachinery uses the shared Upgates HTML parser, Dílybagru uses WooCommerce HTML selectors with 21% VAT net-price derivation, and Strojparts uses its public JSON API.
 - The scraper queue is now competitor-agnostic and the full pipeline is driven by `COMPETITOR_CODE`.
 - `Sandix/docs/DATABASE.md` now contains the target database design.
@@ -40,6 +42,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Profibagr scraper now supports `--scope full`, which reads all Sandix current identifiers from `core.product_search_identifier_v` instead of the filtered queue.
 - `core.product_search_identifier_v` now splits multi-value POHODA `IDS` fields into individual part-number tokens before queue and full-scope processing.
 - `scraper.competitor_latest_not_found_v` exposes individual `NOT_FOUND` search requests from the latest reportable run of each competitor; Metabase card `75` displays the view.
+- Metabase card `64` now shows Sandix gross price plus market average and median calculated from valid Sandix and competitor prices. POHODA `dbo.SKz` has no direct e-shop URL column, so no Sandix product URL is available for this card.
 - New analytics view `reporting.part_number_filter_latest_coverage_v` tracks `NOT_SEARCHED`, `NOT_FOUND`, `FOUND_ORIGINAL_ONLY`, `FOUND_ALTERNATIVE`, and `FOUND_BOTH` for Sandix alternative PN.
 - Metabase now has card `57` for Sandix alternative coverage and card `56` for Sandix ALTERNATIVE vs Profibagr ALTERNATIVE comparison.
 - Metabase dashboard `Sandix - Profibagr analytika` is now set to `width=full` and the cards are stacked in a single full-width column to minimize horizontal scrolling.
@@ -91,6 +94,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - `Sandix/profibagr-scraper/competitors/profi_machinery.env.example`
 - `Sandix/profibagr-scraper/competitors/dilybagru.env.example`
 - `Sandix/profibagr-scraper/competitors/strojparts.env.example`
+- `Sandix/profibagr-scraper/competitors/b2b_cogito.env.example`
 - `Sandix/README.md`
 - `Sandix/sitecustomize.py`
 - `Sandix/src/sandix/analytics.py`
@@ -109,6 +113,7 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Changed in `sandix_price_monitor`: `core.product_current_v`, `core.product_search_identifier_v`, `scraper.v_search_queue`, `export.product_current_v`, `export.own_price_history_v`, `export.competitor_offer_history_v`, `export.scrape_run_v`
 - Changed in `sandix_price_monitor`: `scraper.competitor_latest_not_found_v`
 - Changed in `sandix_price_analytics`: schemas `mart`, `dim`, `fact`, `reporting`; legacy Profibagr reporting objects plus shared `reporting.competitor_*`, `reporting.competitor_variant_*`, and `reporting.part_number_filter_*` reporting tables/views
+- Changed in `sandix_price_analytics`: `reporting.competitor_market_price_comparison_v` now exposes market statistics that include valid Sandix prices.
 
 ## Tests executed
 
@@ -207,8 +212,11 @@ Build a filtering-first system for automated competitor price monitoring for JCB
 - Shared Metabase cards `71` to `73` currently return zero rows because the latest run has no Sandix-alternative versus competitor-alternative intersection; market-average card `64` is intentionally retained for later validation.
 - Provisioning is idempotent for dashboard `5`: it reuses managed cards, updates their queries/layout, and does not create duplicates.
 - New competitor smoke runs completed successfully and registered the competitor rows in `scraper.competitor`; Strojparts returned its sample product without a public price, which is correctly excluded from price-gap metrics.
+- B2B Cogito smoke run found two EUR-priced offers for `32/925895`; repeated manual requests triggered its temporary CAPTCHA protection, so its configuration uses a five-second delay between part-number searches.
+- B2B Cogito circuit-breaker detection is verified for HTTP `503` and CAPTCHA URL responses; a blocked run is excluded from analytics and prevents further requests.
 - Multi-value POHODA `IDS` values are no longer concatenated into invalid scraper search terms; spaces, commas, semicolons, and `|` separate individual part numbers in `core.product_search_identifier_v`.
 - Metabase card `75` (`Konkurenti - nenalezené PN`) reads `scraper.competitor_latest_not_found_v` and returns per-PN `NOT_FOUND` rows for each competitor's latest reportable run.
+- Metabase card `64` now returns `sandix_price_gross`, `avg_market_price_gross`, and `median_market_price_gross`; its market metrics include Sandix only when its gross price is greater than zero.
 
 ## Unresolved issues
 

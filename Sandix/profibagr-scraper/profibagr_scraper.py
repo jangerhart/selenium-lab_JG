@@ -56,6 +56,7 @@ SEARCH_PATH = os.getenv("SEARCH_PATH") or "/search"
 SEARCH_PARAM = os.getenv("SEARCH_PARAM") or "phrase"
 SCRAPER_MODE = os.getenv("SCRAPER_MODE") or "HTML"
 SEARCH_EXTRA_PARAMS = json.loads(os.getenv("SEARCH_EXTRA_PARAMS") or "{}")
+DEFAULT_CURRENCY = os.getenv("DEFAULT_CURRENCY") or "CZK"
 COMPETITOR_SLUG = re.sub(r"[^a-z0-9]+", "_", COMPETITOR_CODE.lower()).strip("_") or "competitor"
 
 
@@ -162,6 +163,22 @@ def get_request_delay_seconds() -> float:
         return max(float(raw_value), 0.0)
     except ValueError as exc:
         raise RuntimeError("REQUEST_DELAY_SECONDS must be a number") from exc
+
+
+def get_cogito_blocked_retry_count() -> int:
+    raw_value = os.getenv("COGITO_BLOCKED_RETRY_COUNT") or "2"
+    try:
+        return max(int(raw_value), 0)
+    except ValueError as exc:
+        raise RuntimeError("COGITO_BLOCKED_RETRY_COUNT must be an integer") from exc
+
+
+def get_cogito_blocked_retry_delay_seconds() -> float:
+    raw_value = os.getenv("COGITO_BLOCKED_RETRY_DELAY_SECONDS") or "60"
+    try:
+        return max(float(raw_value), 0.0)
+    except ValueError as exc:
+        raise RuntimeError("COGITO_BLOCKED_RETRY_DELAY_SECONDS must be a number") from exc
 
 
 def connect_monitor_db() -> psycopg.Connection:
@@ -582,6 +599,15 @@ def parse_search_product_urls(html: str) -> list[str]:
             if href:
                 urls.append(urljoin(BASE_URL, href))
 
+    if not urls:
+        for card in soup.select("li.product-box"):
+            anchor = card.select_one('a[data-type="product-url"][href]')
+            if not anchor:
+                continue
+            href = anchor.get("href", "").strip()
+            if href:
+                urls.append(urljoin(BASE_URL, href))
+
     # fallback when card structure changes
     if not urls:
         for anchor in soup.select("a[href]"):
@@ -608,6 +634,24 @@ def extract_oem_from_detail(soup: BeautifulSoup) -> str:
             value = " ".join(cols[1].stripped_strings)
             if value:
                 return value
+
+    for row in soup.select("li"):
+        label = row.select_one("span")
+        value = row.select_one("strong")
+        if not label or not value:
+            continue
+        if any(
+            marker in label.get_text(" ", strip=True).upper()
+            for marker in ("CATALOG NUMBER", "OTHER NUMBERS")
+        ):
+            return value.get_text(" ", strip=True)
+
+    for row in soup.select("tr"):
+        cells = row.select("td")
+        if len(cells) < 2:
+            continue
+        if "OTHER NUMBERS" in cells[0].get_text(" ", strip=True).upper():
+            return cells[-1].get_text(" ", strip=True)
     return ""
 
 
@@ -619,6 +663,14 @@ def extract_availability_raw(soup: BeautifulSoup) -> str:
     availability = soup.select_one(".availability")
     if availability:
         return " ".join(availability.get_text(" ", strip=True).split())
+
+    for row in soup.select("li"):
+        label = row.select_one("span")
+        value = row.select_one("strong")
+        if not label or not value:
+            continue
+        if "AVAILABILITY" in label.get_text(" ", strip=True).upper():
+            return value.get_text(" ", strip=True)
 
     product = soup.select_one(".product")
     if product and "instock" in product.get("class", []):
@@ -720,10 +772,19 @@ def parse_product_detail(html: str, product_url: str) -> dict[str, Any]:
     woo_gross_price = soup.select_one(".product-page-price .woocommerce-Price-amount.amount")
     if with_vat is None and woo_gross_price:
         with_vat = parse_price_decimal(woo_gross_price.get_text(" ", strip=True))
+
+    cogito_net_price = soup.select_one(".product-price-row.netto-row .price:not(.hide)")
+    if without_vat is None and cogito_net_price:
+        without_vat = parse_price_decimal(cogito_net_price.get_text(" ", strip=True))
+
+    cogito_gross_price = soup.select_one(".product-price-row.brutto-row .price:not(.hide)")
+    if with_vat is None and cogito_gross_price:
+        with_vat = parse_price_decimal(cogito_gross_price.get_text(" ", strip=True))
+
     if without_vat is None and with_vat is not None:
         without_vat = (with_vat / Decimal("1.21")).quantize(Decimal("0.01"))
 
-    currency = upgates.get("currency") or json_ld_price.get("priceCurrency") or "CZK"
+    currency = upgates.get("currency") or json_ld_price.get("priceCurrency") or DEFAULT_CURRENCY
     availability_raw = extract_availability_raw(soup) or str(json_ld_offer.get("availability") or "")
 
     return {
@@ -847,6 +908,40 @@ def status_row(
     }
 
 
+def is_blocked_response(response: httpx.Response) -> bool:
+    if response.status_code in (403, 429):
+        return True
+    return COMPETITOR_CODE == "B2B_COGITO" and (
+        response.status_code == 503 or "captcha" in response.url.path.lower()
+    )
+
+
+def get_with_cogito_backoff(
+    client: httpx.Client,
+    url: str,
+    logger: logging.Logger,
+    **kwargs: Any,
+) -> httpx.Response:
+    retries = get_cogito_blocked_retry_count() if COMPETITOR_CODE == "B2B_COGITO" else 0
+    retry_delay_seconds = get_cogito_blocked_retry_delay_seconds()
+
+    for attempt in range(retries + 1):
+        response = client.get(url, **kwargs)
+        if not is_blocked_response(response) or attempt == retries:
+            return response
+        delay_seconds = retry_delay_seconds * (2**attempt)
+        logger.warning(
+            "COGITO BLOCKED: HTTP %s, retrying in %.0f seconds (%s/%s)",
+            response.status_code,
+            delay_seconds,
+            attempt + 1,
+            retries,
+        )
+        time.sleep(delay_seconds)
+
+    raise RuntimeError("Unreachable")
+
+
 def scrape_part_number(
     client: httpx.Client,
     run_id: str,
@@ -859,7 +954,7 @@ def scrape_part_number(
     try:
         search_params = {str(key): str(value) for key, value in SEARCH_EXTRA_PARAMS.items()}
         search_params[SEARCH_PARAM] = search_part_number
-        response = client.get(SEARCH_PATH, params=search_params)
+        response = get_with_cogito_backoff(client, SEARCH_PATH, logger, params=search_params)
     except httpx.TimeoutException as exc:
         logger.error("TIMEOUT: %s", search_part_number)
         return FetchResult(
@@ -895,7 +990,7 @@ def scrape_part_number(
             ],
         )
 
-    if response.status_code in (403, 429):
+    if is_blocked_response(response):
         logger.error("BLOCKED: %s (%s)", search_part_number, response.status_code)
         return FetchResult(
             status="BLOCKED",
@@ -985,7 +1080,7 @@ def scrape_part_number(
     for product_url in product_urls:
         logger.info("PRODUCT URL: %s", product_url)
         try:
-            detail = client.get(product_url)
+            detail = get_with_cogito_backoff(client, product_url, logger)
         except httpx.TimeoutException as exc:
             rows.append(
                 status_row(
@@ -1012,6 +1107,25 @@ def scrape_part_number(
                 )
             )
             continue
+
+        if is_blocked_response(detail):
+            logger.error("BLOCKED: %s (%s)", product_url, detail.status_code)
+            return FetchResult(
+                status="BLOCKED",
+                match_count=len(product_urls),
+                rows=[
+                    status_row(
+                        run_id,
+                        search_part_number,
+                        "BLOCKED",
+                        len(product_urls),
+                        scraped_at,
+                        http_status=detail.status_code,
+                        error_type="BLOCKED",
+                        error_message="Possible anti-bot protection.",
+                    )
+                ],
+            )
 
         if detail.status_code >= 400:
             rows.append(
@@ -1125,6 +1239,26 @@ def abort_scrape_run(
         )
 
 
+def block_scrape_run(
+    conn: psycopg.Connection,
+    run_id: uuid.UUID,
+    finished_at: datetime,
+    message: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE scraper.scrape_run
+            SET finished_at = %s,
+                status = 'BLOCKED',
+                last_heartbeat_at = %s,
+                error_message = %s
+            WHERE run_id = %s
+            """,
+            (finished_at, finished_at, message, run_id),
+        )
+
+
 def write_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as csv_file:
@@ -1224,6 +1358,8 @@ def main() -> int:
             scrape_run_message = message
             if status == "ABORTED":
                 abort_scrape_run(monitor_conn, scrape_run_id, datetime.now(timezone.utc), message or "Aborted")
+            elif status == "BLOCKED":
+                block_scrape_run(monitor_conn, scrape_run_id, datetime.now(timezone.utc), message or "Blocked")
             else:
                 finalize_scrape_run(
                     monitor_conn,
@@ -1283,6 +1419,10 @@ def main() -> int:
                     not_found_count += 1
                 else:
                     error_count += 1
+
+                if result.status == "BLOCKED":
+                    finalize_run("BLOCKED", f"Anti-bot protection detected while searching {part_number}")
+                    break
 
                 if index < len(part_numbers) - 1:
                     time.sleep(request_delay_seconds)

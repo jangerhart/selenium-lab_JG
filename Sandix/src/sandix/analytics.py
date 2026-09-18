@@ -288,7 +288,8 @@ ANALYTICS_DDL = [
       ON r.source_run_id = p.source_run_id
      AND r.competitor_code = p.competitor_code
      AND r.comparison_scope = p.comparison_scope
-    )
+    ),
+    aggregated_rows AS (
     SELECT
         comparison_scope,
         product_id,
@@ -309,6 +310,49 @@ ANALYTICS_DDL = [
         MAX(generated_at) AS generated_at
     FROM latest_rows
     GROUP BY comparison_scope, product_id, sandix_part_number, source_identifier, searched_identifier, product_name
+    ),
+    market_prices AS (
+        SELECT
+            comparison_scope,
+            product_id,
+            source_identifier,
+            searched_identifier,
+            sandix_price_gross AS price_gross
+        FROM aggregated_rows
+        WHERE sandix_price_gross > 0
+        UNION ALL
+        SELECT
+            comparison_scope,
+            product_id,
+            source_identifier,
+            searched_identifier,
+            competitor_price_gross AS price_gross
+        FROM latest_rows
+        WHERE competitor_price_gross IS NOT NULL
+    ),
+    market_stats AS (
+        SELECT
+            comparison_scope,
+            product_id,
+            source_identifier,
+            searched_identifier,
+            COUNT(*)::int AS market_price_count,
+            AVG(price_gross)::numeric(18,4) AS avg_market_price_gross,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY price_gross)::numeric(18,4) AS median_market_price_gross
+        FROM market_prices
+        GROUP BY comparison_scope, product_id, source_identifier, searched_identifier
+    )
+    SELECT
+        a.*,
+        COALESCE(m.market_price_count, 0) AS market_price_count,
+        m.avg_market_price_gross,
+        m.median_market_price_gross
+    FROM aggregated_rows a
+    LEFT JOIN market_stats m
+      ON m.comparison_scope = a.comparison_scope
+     AND m.product_id = a.product_id
+     AND m.source_identifier = a.source_identifier
+     AND m.searched_identifier = a.searched_identifier
     ORDER BY avg_price_gap_pct_vs_competitor DESC NULLS LAST, avg_price_gap_gross DESC NULLS LAST, product_name
     """,
 ]

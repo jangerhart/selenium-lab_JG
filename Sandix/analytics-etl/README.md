@@ -62,7 +62,7 @@ COMPETITOR_CODE=BAGRY_ND COMPETITOR_NAME="Bagry ND" BASE_URL=https://www.jcb-nah
 
 After both commands succeed, dashboard `5` shows Bagry ND in the shared competitor cards alongside Profibagr.
 
-## Profimachinery, Dílybagru, And Strojparts
+## Profimachinery, Dílybagru, Strojparts, And B2B Cogito
 
 Website configurations are in `profibagr-scraper/competitors/`. They contain no database credentials and work with the standard `analytics-etl/.env` plus `profibagr-scraper/.env` files.
 
@@ -79,6 +79,7 @@ Replace `dilybagru.env.example` with one of:
 - `profi_machinery.env.example`
 - `strojparts.env.example`
 - `bagry_nd.env.example`
+- `b2b_cogito.env.example`
 
 Pipeline example for Strojparts:
 

@@ -39,6 +39,7 @@ All examples below activate `.venv_scraper`. If it is already active, start from
 | `PROFI_MACHINERY` | `https://www.profimachinery.cz` | `competitors/profi_machinery.env.example` |
 | `DILYBAGRU` | `https://www.dilybagru.cz` | `competitors/dilybagru.env.example` |
 | `STROJPARTS` | `https://www.strojparts.cz` | `competitors/strojparts.env.example` |
+| `B2B_COGITO` | `https://b2bcogito.com` | `competitors/b2b_cogito.env.example` |
 
 Competitor files contain only website-specific settings. The scraper always loads database access from `profibagr-scraper/.env` first, then applies the selected competitor file.
 
@@ -169,9 +170,9 @@ cd /tmp/opencode/selenium-lab_JG/Sandix
 COMPETITOR_ENV_FILE=/absolute/path/to/bagry-nd.env .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --scope queue
 ```
 
-## Profimachinery, Dílybagru, And Strojparts
+## Profimachinery, Dílybagru, Strojparts, And B2B Cogito
 
-All three use a checked-in website configuration template. The following commands run a one-part smoke test without modifying your default Profibagr `.env`.
+All four use a checked-in website configuration template. The following commands run a one-part smoke test without modifying your default Profibagr `.env`.
 
 Profimachinery:
 
@@ -194,6 +195,13 @@ cd /tmp/opencode/selenium-lab_JG/Sandix
 COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/strojparts.env.example" .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
 ```
 
+B2B Cogito:
+
+```bash
+cd /tmp/opencode/selenium-lab_JG/Sandix
+COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/b2b_cogito.env.example" .venv_scraper/bin/python profibagr-scraper/profibagr_scraper.py --part-number "32/925895"
+```
+
 Normal queue run for any of these competitors uses the same command with `--scope queue` instead of `--part-number`.
 
 Use the full sequential pipeline after the smoke test passes. Example for Dílybagru:
@@ -203,7 +211,9 @@ cd /tmp/opencode/selenium-lab_JG/Sandix
 COMPETITOR_ENV_FILE="$PWD/profibagr-scraper/competitors/dilybagru.env.example" .venv_scraper/bin/python analytics-etl/run_competitor_pipeline.py --scope queue
 ```
 
-Dílybagru publishes its product prices with VAT only; the scraper derives net price using Czech 21% VAT. Strojparts uses a JSON API and may return a product with no public price. Such zero/missing prices are stored for audit but excluded from price-gap reporting.
+Dílybagru publishes its product prices with VAT only; the scraper derives net price using Czech 21% VAT. Strojparts uses a JSON API and may return a product with no public price. Such zero/missing prices are stored for audit but excluded from price-gap reporting. B2B Cogito publishes both net and gross prices in EUR. It uses one stable outbound connection, waits five seconds between part-number searches, and does not rotate proxies.
+
+For B2B Cogito, `403`, `429`, `503`, and CAPTCHA redirect responses trigger exponential backoff: the scraper retries after 60 seconds and then 120 seconds. If protection remains active, it stops the entire run with status `BLOCKED`; the run is excluded from analytics and no further requests are sent. The retry values are configurable in `competitors/b2b_cogito.env.example`.
 
 ## After The Scraper
 

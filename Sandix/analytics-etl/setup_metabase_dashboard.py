@@ -207,10 +207,13 @@ def main() -> int:
         QuestionSpec("Konkurenti - Sandix ALTERNATIVE dražší", "Alternativní položky, kde je Sandix dražší než konkurent.", alternative_price_query + " AND p.price_gap_pct_vs_competitor > 0 ORDER BY p.price_gap_pct_vs_competitor DESC NULLS LAST, p.price_gap_net DESC NULLS LAST, p.product_name LIMIT 10", visualization_settings=gap_formatting),
         QuestionSpec("Konkurenti - Sandix ALTERNATIVE levnější", "Alternativní položky, kde je Sandix levnější než konkurent.", alternative_price_query + " AND p.price_gap_pct_vs_competitor < 0 ORDER BY p.price_gap_pct_vs_competitor ASC NULLS LAST, p.price_gap_net ASC NULLS LAST, p.product_name LIMIT 10", visualization_settings=gap_formatting),
         QuestionSpec("Konkurenti - průměrná cena trhu", "Experimentální porovnání Sandix proti průměru napříč konkurenty.", """
-            SELECT comparison_scope, product_name, sandix_part_number, competitor_count, avg_competitor_price_gross,
-                   min_competitor_price_gross, max_competitor_price_gross, avg_price_gap_gross, avg_price_gap_pct_vs_competitor
+            SELECT comparison_scope, product_name, sandix_part_number, sandix_price_gross,
+                   competitor_count, market_price_count, avg_competitor_price_gross,
+                   avg_market_price_gross, median_market_price_gross,
+                   min_competitor_price_gross, max_competitor_price_gross,
+                   avg_price_gap_gross, avg_price_gap_pct_vs_competitor
             FROM reporting.competitor_market_price_comparison_v
-            ORDER BY avg_price_gap_pct_vs_competitor DESC NULLS LAST, avg_price_gap_gross DESC NULLS LAST, product_name
+            ORDER BY median_market_price_gross DESC NULLS LAST, product_name
         """),
         QuestionSpec("Filtr part numberů - stav konkurenta", "Coverage snapshot po source_domain pro poslední konkurentský běh.", """
             SELECT source_domain, search_coverage_status, row_count
